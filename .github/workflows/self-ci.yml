@@ -20,12 +20,13 @@ jobs:
   # ── Validate YAML syntax of all workflow files ────────────────────────────
   yaml-lint:
     name: YAML Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
       - name: Install yamllint
-        run: pip install yamllint --quiet
+        run: pip install yamllint --quiet --break-system-packages
 
       - name: Lint workflow YAML files
         run: |
@@ -38,13 +39,16 @@ jobs:
   # ── Validate action.yml files are well-formed ─────────────────────────────
   action-lint:
     name: Action Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
       - name: Install actionlint
         run: |
-          bash <(curl -s https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          curl -sLo actionlint.tar.gz \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.3/actionlint_1.7.3_linux_amd64.tar.gz
+          tar xzf actionlint.tar.gz actionlint
           sudo mv actionlint /usr/local/bin/
 
       - name: Run actionlint
@@ -53,7 +57,8 @@ jobs:
   # ── REUSE compliance on this repo ─────────────────────────────────────────
   reuse:
     name: REUSE Compliance
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: fsfe/reuse-action@v4
@@ -61,7 +66,8 @@ jobs:
   # ── DCO check on this repo ────────────────────────────────────────────────
   dco:
     name: DCO Sign-off
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -73,7 +79,8 @@ jobs:
     name: Release
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [yaml-lint, action-lint, reuse, dco]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: write
       pull-requests: write
@@ -85,11 +92,15 @@ jobs:
           manifest-file: .release-please-manifest.json
 
   # ── Gate ──────────────────────────────────────────────────────────────────
+  # NOTE: `release` is intentionally excluded from this gate. It only runs on
+  # push to main (not PRs), so including it would break PR branch-protection
+  # rules. Release failures are visible in the Actions UI but do not block merges.
   all-checks:
     name: All Checks Passed
     needs: [yaml-lint, action-lint, reuse, dco]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - name: Check results
         run: |

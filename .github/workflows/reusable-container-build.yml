@@ -56,7 +56,8 @@ on:
 jobs:
   build-push:
     name: Build & Push (${{ inputs.platforms }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     outputs:
       digest: ${{ steps.push.outputs.digest }}
       tags: ${{ steps.meta.outputs.tags }}
@@ -77,8 +78,8 @@ jobs:
         run: |
           NAME="${{ inputs.image-name }}"
           if [ -z "$NAME" ]; then
-            # Default: owner/repo-name (lowercase)
-            NAME=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+            # Default: registry/owner/repo-name (lowercase)
+            NAME="${{ inputs.registry }}/$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')"
           else
             NAME="${{ inputs.registry }}/$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')/$NAME"
           fi

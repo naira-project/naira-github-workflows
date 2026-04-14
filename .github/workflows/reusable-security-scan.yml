@@ -31,7 +31,7 @@ on:
         type: string
         default: "."
       severity:
-        description: "Minimum severity to fail on: CRITICAL | HIGH | MEDIUM | LOW"
+        description: "Minimum severity threshold: CRITICAL | HIGH | MEDIUM | LOW. Scans for this severity and all above."
         type: string
         default: "HIGH"
       upload-sarif:
@@ -43,7 +43,8 @@ jobs:
   trivy-filesystem:
     name: Trivy · Filesystem Scan
     if: inputs.scan-filesystem
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
 
     permissions:
       contents: read
@@ -53,14 +54,27 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # Trivy --severity takes an explicit comma-separated list, not a threshold.
+      # Map the input to include all severities at or above the requested minimum.
+      - name: Compute severity list
+        id: severity
+        run: |
+          case "${{ inputs.severity }}" in
+            LOW)      echo "list=LOW,MEDIUM,HIGH,CRITICAL" >> "$GITHUB_OUTPUT" ;;
+            MEDIUM)   echo "list=MEDIUM,HIGH,CRITICAL" >> "$GITHUB_OUTPUT" ;;
+            HIGH)     echo "list=HIGH,CRITICAL" >> "$GITHUB_OUTPUT" ;;
+            CRITICAL) echo "list=CRITICAL" >> "$GITHUB_OUTPUT" ;;
+            *)        echo "list=HIGH,CRITICAL" >> "$GITHUB_OUTPUT" ;;
+          esac
+
       - name: Run Trivy filesystem scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: "fs"
           scan-ref: "."
           format: "sarif"
           output: "trivy-fs-results.sarif"
-          severity: "${{ inputs.severity }},CRITICAL"
+          severity: "${{ steps.severity.outputs.list }}"
           # Scan source code deps, IaC configs, and secrets
           scanners: "vuln,secret,misconfig"
           exit-code: "1"
@@ -76,20 +90,34 @@ jobs:
   trivy-image:
     name: Trivy · Image Scan
     if: inputs.scan-image && inputs.image-ref != ''
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
 
     permissions:
       contents: read
       security-events: write
 
     steps:
+      # Trivy --severity takes an explicit comma-separated list, not a threshold.
+      # Map the input to include all severities at or above the requested minimum.
+      - name: Compute severity list
+        id: severity
+        run: |
+          case "${{ inputs.severity }}" in
+            LOW)      echo "list=LOW,MEDIUM,HIGH,CRITICAL" >> "$GITHUB_OUTPUT" ;;
+            MEDIUM)   echo "list=MEDIUM,HIGH,CRITICAL" >> "$GITHUB_OUTPUT" ;;
+            HIGH)     echo "list=HIGH,CRITICAL" >> "$GITHUB_OUTPUT" ;;
+            CRITICAL) echo "list=CRITICAL" >> "$GITHUB_OUTPUT" ;;
+            *)        echo "list=HIGH,CRITICAL" >> "$GITHUB_OUTPUT" ;;
+          esac
+
       - name: Run Trivy image scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: ${{ inputs.image-ref }}
           format: "sarif"
           output: "trivy-image-results.sarif"
-          severity: "${{ inputs.severity }},CRITICAL"
+          severity: "${{ steps.severity.outputs.list }}"
           scanners: "vuln,secret"
           exit-code: "1"
           ignore-unfixed: true
@@ -104,7 +132,8 @@ jobs:
   govulncheck:
     name: govulncheck · Go CVE Scan
     if: inputs.run-govulncheck
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
 
     defaults:
       run:
@@ -121,7 +150,7 @@ jobs:
           cache-dependency-path: ${{ inputs.working-directory }}/go.sum
 
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.3
 
       - name: Run govulncheck
         run: govulncheck ./...
@@ -134,7 +163,8 @@ jobs:
     needs: [trivy-filesystem, trivy-image, govulncheck]
     # Run even if some jobs were skipped (they won't fail if skipped)
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
 
     steps:
       - name: Check all security results

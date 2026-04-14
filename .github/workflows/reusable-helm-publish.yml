@@ -37,7 +37,11 @@ on:
 jobs:
   helm-lint:
     name: Helm Lint & Validate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout code
@@ -57,7 +61,8 @@ jobs:
       - name: Detect changed charts
         id: changed
         run: |
-          CHANGED=$(ct list-changed --chart-dirs ${{ inputs.charts-directory }} --target-branch ${{ github.event.repository.default_branch }})
+          TARGET="${{ github.event.repository.default_branch || 'main' }}"
+          CHANGED=$(ct list-changed --chart-dirs ${{ inputs.charts-directory }} --target-branch "$TARGET")
           echo "charts<<EOF" >> "$GITHUB_OUTPUT"
           echo "$CHANGED" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
@@ -72,7 +77,7 @@ jobs:
         run: |
           ct lint \
             --chart-dirs ${{ inputs.charts-directory }} \
-            --target-branch ${{ github.event.repository.default_branch }} \
+            --target-branch "${{ github.event.repository.default_branch || 'main' }}" \
             --validate-maintainers=false
 
       - name: Validate chart schemas
@@ -90,7 +95,8 @@ jobs:
     name: Helm Publish (OCI)
     needs: helm-lint
     if: "!inputs.lint-only && inputs.publish-method == 'oci'"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
 
     permissions:
       contents: read
@@ -115,12 +121,17 @@ jobs:
       - name: Package and push all charts
         run: |
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          mkdir -p /tmp/helm-packages
           for chart in ${{ inputs.charts-directory }}/*/; do
             CHART_NAME=$(basename "$chart")
             echo "📦 Packaging $CHART_NAME..."
             helm package "$chart" --destination /tmp/helm-packages/
 
-            PACKAGE=$(ls /tmp/helm-packages/${CHART_NAME}-*.tgz)
+            PACKAGE=$(find /tmp/helm-packages/ -name "${CHART_NAME}-*.tgz" -maxdepth 1 | head -1)
+            if [ -z "$PACKAGE" ]; then
+              echo "::error::Failed to find packaged chart for $CHART_NAME"
+              exit 1
+            fi
             echo "🚀 Pushing $PACKAGE to oci://${{ inputs.registry }}/${OWNER}/charts"
             helm push "$PACKAGE" oci://${{ inputs.registry }}/${OWNER}/charts
           done
@@ -139,7 +150,8 @@ jobs:
     name: Helm Publish (GitHub Pages)
     needs: helm-lint
     if: "!inputs.lint-only && inputs.publish-method == 'gh-pages'"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
 
     permissions:
       contents: write

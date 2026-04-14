@@ -2,7 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 name: "Naira: Setup Node"
-description: "Sets up Node.js with npm/yarn/pnpm caching."
+description: |
+  Sets up Node.js with npm/yarn/pnpm caching.
+  NOTE: This composite action is a reusable template for consumer repositories.
+  The reusable workflows in this repo inline equivalent logic directly, as relative
+  action paths (./) in workflow_call resolve to the caller's repo, not this one.
 
 inputs:
   node-version:
@@ -14,23 +18,38 @@ inputs:
     required: false
     default: "npm"
   working-directory:
-    description: "Directory containing package-lock.json / yarn.lock"
+    description: "Directory containing package-lock.json / yarn.lock / pnpm-lock.yaml"
     required: false
     default: "."
 
 runs:
   using: "composite"
   steps:
+    # Resolve the correct lockfile for the chosen package manager.
+    # Each package manager uses a different lockfile name; using the wrong
+    # one produces incorrect cache keys and stale caches.
+    - name: Resolve lockfile path
+      id: lockfile
+      shell: bash
+      run: |
+        case "${{ inputs.package-manager }}" in
+          yarn) echo "path=${{ inputs.working-directory }}/yarn.lock" >> "$GITHUB_OUTPUT" ;;
+          pnpm) echo "path=${{ inputs.working-directory }}/pnpm-lock.yaml" >> "$GITHUB_OUTPUT" ;;
+          *)    echo "path=${{ inputs.working-directory }}/package-lock.json" >> "$GITHUB_OUTPUT" ;;
+        esac
+
+    # pnpm must be on PATH before actions/setup-node when cache: pnpm is set,
+    # so that setup-node can locate pnpm and the lockfile for cache keying.
+    - name: Setup pnpm
+      if: inputs.package-manager == 'pnpm'
+      uses: pnpm/action-setup@v4
+
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
         node-version: ${{ inputs.node-version }}
         cache: ${{ inputs.package-manager }}
-        cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
-
-    - name: Setup pnpm
-      if: inputs.package-manager == 'pnpm'
-      uses: pnpm/action-setup@v4
+        cache-dependency-path: ${{ steps.lockfile.outputs.path }}
 
     - name: Print Node version
       shell: bash

@@ -22,15 +22,11 @@ on:
         description: "Lint timeout (e.g. 5m)"
         type: string
         default: "5m"
-    secrets:
-      # No secrets required for linting, but slot kept for future use
-      token:
-        required: false
-
 jobs:
   go-lint:
     name: Go Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: ${{ inputs.working-directory }}
@@ -39,7 +35,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -59,8 +55,8 @@ jobs:
           version: ${{ inputs.golangci-lint-version }}
           working-directory: ${{ inputs.working-directory }}
           args: --timeout=${{ inputs.timeout }}
-          # Skip cache managed by golangci-lint itself — we manage it above
-          skip-cache: false
+          # Disable golangci-lint's built-in caching — managed by actions/cache above
+          skip-cache: true
 
       - name: Check go mod tidy
         run: |

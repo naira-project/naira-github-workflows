@@ -2,7 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 name: "Naira: Setup Go"
-description: "Sets up Go with module caching. Use instead of actions/setup-go directly."
+description: |
+  Sets up Go with module caching. Use instead of actions/setup-go directly.
+  NOTE: This composite action is a reusable template for consumer repositories.
+  The reusable workflows in this repo inline equivalent logic directly, as relative
+  action paths (./) in workflow_call resolve to the caller's repo, not this one.
 
 inputs:
   go-version:

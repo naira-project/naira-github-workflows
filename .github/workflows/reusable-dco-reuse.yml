@@ -23,7 +23,8 @@ jobs:
   dco-check:
     name: DCO Sign-off
     if: inputs.check-dco
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
 
     steps:
       - name: Checkout code
@@ -41,7 +42,8 @@ jobs:
   reuse-check:
     name: REUSE License Compliance
     if: inputs.check-reuse
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
 
     steps:
       - name: Checkout code
@@ -55,7 +57,7 @@ jobs:
       - name: Generate REUSE SBOM (SPDX)
         # Produces a machine-readable bill of materials — useful for audits
         run: |
-          pip install reuse==${{ inputs.reuse-version }} --quiet
+          pip install reuse==${{ inputs.reuse-version }} --quiet --break-system-packages
           reuse spdx --output reuse-sbom.spdx
 
       - name: Upload REUSE SBOM

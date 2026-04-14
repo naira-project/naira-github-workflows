@@ -33,8 +33,8 @@ on:
         default: false
     secrets:
       github-token:
-        description: "GitHub token with contents:write and pull-requests:write"
-        required: true
+        description: "GitHub token with contents:write and pull-requests:write. Defaults to the built-in GITHUB_TOKEN."
+        required: false
       slack-webhook:
         description: "Slack webhook URL for release notification"
         required: false
@@ -52,7 +52,8 @@ on:
 jobs:
   release-please:
     name: Release Please
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     outputs:
       release-created: ${{ steps.release.outputs.release_created }}
       tag-name:        ${{ steps.release.outputs.tag_name }}
@@ -63,7 +64,7 @@ jobs:
         id: release
         uses: google-github-actions/release-please-action@v4
         with:
-          token: ${{ secrets.github-token }}
+          token: ${{ secrets.github-token || github.token }}
           release-type: ${{ inputs.release-type }}
           target-branch: ${{ inputs.release-branch }}
           changelog-types: ${{ inputs.changelog-types }}
@@ -75,7 +76,8 @@ jobs:
     name: Post Release Tasks
     needs: release-please
     if: needs.release-please.outputs.release-created == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
 
     steps:
       - name: Checkout tag

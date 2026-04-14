@@ -34,7 +34,8 @@ on:
 jobs:
   go-test:
     name: Go Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     outputs:
       coverage: ${{ steps.coverage.outputs.pct }}
 
@@ -100,8 +101,13 @@ jobs:
 
       - name: Upload coverage to Codecov
         # Only uploads if CODECOV_TOKEN is available in the calling repo
+        id: codecov
         continue-on-error: true
         uses: codecov/codecov-action@v4
         with:
           files: ${{ inputs.working-directory }}/coverage.out
           flags: unittests
+
+      - name: Warn on Codecov upload failure
+        if: steps.codecov.outcome == 'failure'
+        run: echo "::warning::Codecov upload failed. Ensure CODECOV_TOKEN is configured in repository secrets."
