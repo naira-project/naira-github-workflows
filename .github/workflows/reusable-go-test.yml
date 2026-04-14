@@ -55,19 +55,19 @@ jobs:
 
       - name: Run tests
         run: |
-          RACE_FLAG=""
+          RACE_ARGS=()
           if [ "${{ inputs.run-race-detector }}" = "true" ]; then
-            RACE_FLAG="-race"
+            RACE_ARGS=("-race")
           fi
 
-          TAG_FLAG=""
+          TAG_ARGS=()
           if [ -n "${{ inputs.test-tags }}" ]; then
-            TAG_FLAG="-tags ${{ inputs.test-tags }}"
+            TAG_ARGS=("-tags" "${{ inputs.test-tags }}")
           fi
 
           go test \
-            $RACE_FLAG \
-            $TAG_FLAG \
+            "${RACE_ARGS[@]}" \
+            "${TAG_ARGS[@]}" \
             -v \
             -coverprofile=coverage.out \
             -covermode=atomic \

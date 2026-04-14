@@ -31,7 +31,7 @@ on:
         type: string
         default: "."
       severity:
-        description: "Minimum severity threshold: CRITICAL | HIGH | MEDIUM | LOW. Scans for this severity and all above."
+        description: "Minimum severity threshold: CRITICAL | HIGH | MEDIUM | LOW. Scans for this severity and above."
         type: string
         default: "HIGH"
       upload-sarif:

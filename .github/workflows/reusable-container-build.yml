@@ -159,10 +159,12 @@ jobs:
       - name: Write job summary
         if: inputs.push
         run: |
-          echo "### 🐳 Image Published" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Registry:** \`${{ inputs.registry }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Digest:** \`${{ steps.push.outputs.digest }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Tags:**" >> "$GITHUB_STEP_SUMMARY"
-          echo '${{ steps.meta.outputs.tags }}' | tr ',' '\n' | while read tag; do
+          {
+            echo "### 🐳 Image Published"
+            echo "**Registry:** \`${{ inputs.registry }}\`"
+            echo "**Digest:** \`${{ steps.push.outputs.digest }}\`"
+            echo "**Tags:**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo '${{ steps.meta.outputs.tags }}' | tr ',' '\n' | while read -r tag; do
             echo "- \`$tag\`" >> "$GITHUB_STEP_SUMMARY"
           done

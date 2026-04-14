@@ -56,8 +56,8 @@ jobs:
     timeout-minutes: 15
     outputs:
       release-created: ${{ steps.release.outputs.release_created }}
-      tag-name:        ${{ steps.release.outputs.tag_name }}
-      version:         ${{ steps.release.outputs.version }}
+      tag-name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
 
     steps:
       - name: Run release-please
@@ -87,9 +87,11 @@ jobs:
 
       - name: Write release summary
         run: |
-          echo "### 🚀 Release Published" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Version:** \`${{ needs.release-please.outputs.tag-name }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Branch:** \`${{ inputs.release-branch }}\`" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### 🚀 Release Published"
+            echo "**Version:** \`${{ needs.release-please.outputs.tag-name }}\`"
+            echo "**Branch:** \`${{ inputs.release-branch }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # - name: Notify Slack on release
       #   if: inputs.notify-slack && secrets.slack-webhook != ''
@@ -103,7 +105,9 @@ jobs:
       #             "type": "section",
       #             "text": {
       #               "type": "mrkdwn",
-      #               "text": "🚀 *<${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ needs.release-please.outputs.tag-name }}|${{ github.repository }} ${{ needs.release-please.outputs.tag-name }}>* has been released!"
+      #               "text": "🚀 *<${{ github.server_url }}/${{ github.repository }}/releases/tag/
+      #                 ${{ needs.release-please.outputs.tag-name }}|${{ github.repository }}
+      #                 ${{ needs.release-please.outputs.tag-name }}>* has been released!"
       #             }
       #           }
       #         ]

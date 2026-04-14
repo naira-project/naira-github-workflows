@@ -29,9 +29,9 @@ jobs:
         run: pip install yamllint --quiet --break-system-packages
 
       - name: Lint workflow YAML files
+        # Config is read from .yamllint in the repo root
         run: |
           yamllint \
-            --config-data "{extends: default, rules: {line-length: {max: 120}, truthy: {allowed-values: ['true', 'false']}}}" \
             .github/workflows/*.yml \
             .github/actions/**/*.yml \
             examples/**/*.yml
