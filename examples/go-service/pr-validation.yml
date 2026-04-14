@@ -1,0 +1,99 @@
+# SPDX-FileCopyrightText: 2026 Naira Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# ┌──────────────────────────────────────────────────────────────────────────┐
+# │  COPY THIS FILE into your Go service repo at:                            │
+# │  .github/workflows/pr-validation.yml                                     │
+# │                                                                          │
+# │  All jobs call shared reusable workflows from:                           │
+# │  naira-project/shared-workflows                                          │
+# └──────────────────────────────────────────────────────────────────────────┘
+
+name: PR Validation
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── 1. DCO & License compliance (must pass first) ─────────────────────────
+  compliance:
+    name: Compliance
+    uses: naira-project/shared-workflows/.github/workflows/reusable-dco-reuse.yml@main
+    with:
+      check-dco: true
+      check-reuse: true
+
+  # ── 2. Go linting ──────────────────────────────────────────────────────────
+  go-lint:
+    name: Lint
+    uses: naira-project/shared-workflows/.github/workflows/reusable-go-lint.yml@main
+    with:
+      go-version: "1.22"
+      working-directory: "."
+      timeout: "5m"
+
+  # ── 3. Unit tests with coverage ────────────────────────────────────────────
+  go-test:
+    name: Test
+    uses: naira-project/shared-workflows/.github/workflows/reusable-go-test.yml@main
+    with:
+      go-version: "1.22"
+      run-race-detector: true
+      coverage-threshold: 70   # Fail PR if coverage drops below 70%
+
+  # ── 4. Security scan (filesystem + Go CVEs) ────────────────────────────────
+  security:
+    name: Security
+    uses: naira-project/shared-workflows/.github/workflows/reusable-security-scan.yml@main
+    with:
+      scan-filesystem: true
+      run-govulncheck: true
+      severity: "HIGH"
+    permissions:
+      security-events: write
+      contents: read
+
+  # ── 5. Container image build (build-only on PRs, no push) ─────────────────
+  container-build:
+    name: Container Build
+    uses: naira-project/shared-workflows/.github/workflows/reusable-container-build.yml@main
+    with:
+      push: false            # Only push on merges to main (see release.yml)
+      platforms: "linux/amd64,linux/arm64"
+      dockerfile: "Dockerfile"
+    secrets:
+      registry-password: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── Gate: all checks must pass ─────────────────────────────────────────────
+  # Add this job as the single required status check in branch protection.
+  # This way you only need to update branch protection once, not per-job.
+  all-checks:
+    name: All Checks Passed
+    needs: [compliance, go-lint, go-test, security, container-build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        run: |
+          RESULTS=(
+            "${{ needs.compliance.result }}"
+            "${{ needs.go-lint.result }}"
+            "${{ needs.go-test.result }}"
+            "${{ needs.security.result }}"
+            "${{ needs.container-build.result }}"
+          )
+          for r in "${RESULTS[@]}"; do
+            if [[ "$r" == "failure" || "$r" == "cancelled" ]]; then
+              echo "::error::One or more required checks failed: $r"
+              exit 1
+            fi
+          done
+          echo "✅ All checks passed."

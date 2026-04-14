@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: 2026 Naira Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# .reuse/dep5 — Bulk copyright/license declarations for files that
+# cannot carry inline SPDX headers (e.g. JSON, binary assets).
+# Adjust paths to match your repository layout.
+#
+# See: https://reuse.software/spec/
+
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: naira
+Upstream-Contact: naira-project@example.com
+Source: https://github.com/naira-project
+
+# Generated files — no inline headers possible
+Files: **/*.pb.go **/vendor/** **/.git/**
+Copyright: 2026 Naira Project Contributors
+License: Apache-2.0
+
+# Test fixtures and golden files
+Files: **/testdata/**
+Copyright: 2026 Naira Project Contributors
+License: Apache-2.0
+
+# Documentation assets
+Files: docs/**/*.png docs/**/*.svg
+Copyright: 2026 Naira Project Contributors
+License: CC-BY-4.0

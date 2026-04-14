@@ -1,0 +1,44 @@
+# SPDX-FileCopyrightText: 2026 Naira Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+name: "Naira: Docker Metadata"
+description: "Generates OCI-compliant tags and labels for container images."
+
+inputs:
+  image-name:
+    description: "Full image name including registry and owner"
+    required: true
+  extra-labels:
+    description: "Newline-separated extra OCI labels"
+    required: false
+    default: ""
+
+outputs:
+  tags:
+    description: "Generated image tags"
+    value: ${{ steps.meta.outputs.tags }}
+  labels:
+    description: "Generated OCI labels"
+    value: ${{ steps.meta.outputs.labels }}
+  version:
+    description: "Extracted version"
+    value: ${{ steps.meta.outputs.version }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Docker metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ inputs.image-name }}
+        labels: |
+          org.opencontainers.image.vendor=Naira Project
+          ${{ inputs.extra-labels }}
+        tags: |
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=ref,event=branch
+          type=ref,event=pr
+          type=raw,value=latest,enable={{is_default_branch}}
+          type=sha,prefix=sha-,format=short

@@ -1,0 +1,55 @@
+# SPDX-FileCopyrightText: 2026 Naira Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# Triggered on merge to main. Runs release-please, then on actual release:
+# builds + pushes multi-arch container image and scans it.
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  # ── 1. Create/update Release PR (or cut actual release) ───────────────────
+  release:
+    name: Release Please
+    uses: naira-project/shared-workflows/.github/workflows/reusable-release.yml@main
+    with:
+      release-type: go
+      notify-slack: true
+    secrets:
+      github-token: ${{ secrets.GITHUB_TOKEN }}
+      slack-webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # ── 2. Build & push container on actual release ───────────────────────────
+  container-publish:
+    name: Publish Container
+    needs: release
+    if: needs.release.outputs.release-created == 'true'
+    uses: naira-project/shared-workflows/.github/workflows/reusable-container-build.yml@main
+    with:
+      push: true
+      platforms: "linux/amd64,linux/arm64"
+      image-name: "my-go-service"          # ← change to your service name
+      build-args: |
+        VERSION=${{ needs.release.outputs.version }}
+        COMMIT=${{ github.sha }}
+    secrets:
+      registry-password: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── 3. Scan the freshly published image ───────────────────────────────────
+  image-scan:
+    name: Scan Released Image
+    needs: [release, container-publish]
+    if: needs.release.outputs.release-created == 'true'
+    uses: naira-project/shared-workflows/.github/workflows/reusable-security-scan.yml@main
+    with:
+      scan-filesystem: false
+      scan-image: true
+      image-ref: "ghcr.io/${{ github.repository_owner }}/my-go-service:${{ needs.release.outputs.version }}"
+      run-govulncheck: false
+      severity: "CRITICAL"
+    permissions:
+      security-events: write
+      contents: read

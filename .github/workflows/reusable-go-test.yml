@@ -1,0 +1,107 @@
+# SPDX-FileCopyrightText: 2026 Naira Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+name: Reusable · Go Test
+
+on:
+  workflow_call:
+    inputs:
+      go-version:
+        description: "Go version to use"
+        type: string
+        default: "1.22"
+      working-directory:
+        description: "Directory containing go.mod"
+        type: string
+        default: "."
+      run-race-detector:
+        description: "Enable Go race detector"
+        type: boolean
+        default: true
+      coverage-threshold:
+        description: "Minimum coverage percentage (0 to disable)"
+        type: number
+        default: 0
+      test-tags:
+        description: "Build tags to pass to go test (e.g. 'integration')"
+        type: string
+        default: ""
+    outputs:
+      coverage:
+        description: "Test coverage percentage"
+        value: ${{ jobs.go-test.outputs.coverage }}
+
+jobs:
+  go-test:
+    name: Go Test
+    runs-on: ubuntu-latest
+    outputs:
+      coverage: ${{ steps.coverage.outputs.pct }}
+
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go-version }}
+          cache-dependency-path: ${{ inputs.working-directory }}/go.sum
+
+      - name: Run tests
+        run: |
+          RACE_FLAG=""
+          if [ "${{ inputs.run-race-detector }}" = "true" ]; then
+            RACE_FLAG="-race"
+          fi
+
+          TAG_FLAG=""
+          if [ -n "${{ inputs.test-tags }}" ]; then
+            TAG_FLAG="-tags ${{ inputs.test-tags }}"
+          fi
+
+          go test \
+            $RACE_FLAG \
+            $TAG_FLAG \
+            -v \
+            -coverprofile=coverage.out \
+            -covermode=atomic \
+            ./...
+
+      - name: Extract coverage percentage
+        id: coverage
+        run: |
+          PCT=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $3}' | tr -d '%')
+          echo "pct=$PCT" >> "$GITHUB_OUTPUT"
+          echo "### Test Coverage: ${PCT}%" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enforce coverage threshold
+        if: inputs.coverage-threshold > 0
+        run: |
+          PCT=${{ steps.coverage.outputs.pct }}
+          THRESHOLD=${{ inputs.coverage-threshold }}
+          # Use awk for float comparison
+          PASS=$(awk -v p="$PCT" -v t="$THRESHOLD" 'BEGIN { print (p >= t) ? "yes" : "no" }')
+          if [ "$PASS" = "no" ]; then
+            echo "::error::Coverage ${PCT}% is below required threshold of ${THRESHOLD}%."
+            exit 1
+          fi
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-coverage-${{ github.sha }}
+          path: ${{ inputs.working-directory }}/coverage.out
+          retention-days: 7
+
+      - name: Upload coverage to Codecov
+        # Only uploads if CODECOV_TOKEN is available in the calling repo
+        continue-on-error: true
+        uses: codecov/codecov-action@v4
+        with:
+          files: ${{ inputs.working-directory }}/coverage.out
+          flags: unittests

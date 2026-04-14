@@ -1,0 +1,111 @@
+# SPDX-FileCopyrightText: 2026 Naira Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+name: Reusable · Release
+
+on:
+  workflow_call:
+    inputs:
+      release-type:
+        description: "release-please release type: go | node | helm | simple"
+        type: string
+        default: "go"
+      release-branch:
+        description: "Branch to cut releases from"
+        type: string
+        default: "main"
+      changelog-types:
+        description: "JSON array of conventional commit types to include in changelog"
+        type: string
+        default: |
+          [
+            {"type": "feat",     "section": "✨ Features"},
+            {"type": "fix",      "section": "🐛 Bug Fixes"},
+            {"type": "perf",     "section": "⚡ Performance"},
+            {"type": "refactor", "section": "♻️  Refactoring", "hidden": true},
+            {"type": "docs",     "section": "📚 Documentation"},
+            {"type": "chore",    "section": "🔧 Chores", "hidden": true},
+            {"type": "ci",       "section": "👷 CI", "hidden": true}
+          ]
+      notify-slack:
+        description: "Post Slack notification on release"
+        type: boolean
+        default: false
+    secrets:
+      github-token:
+        description: "GitHub token with contents:write and pull-requests:write"
+        required: true
+      slack-webhook:
+        description: "Slack webhook URL for release notification"
+        required: false
+    outputs:
+      release-created:
+        description: "Whether a new release was created"
+        value: ${{ jobs.release-please.outputs.release-created }}
+      tag-name:
+        description: "Tag name of the new release"
+        value: ${{ jobs.release-please.outputs.tag-name }}
+      version:
+        description: "Released version (without v prefix)"
+        value: ${{ jobs.release-please.outputs.version }}
+
+jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    outputs:
+      release-created: ${{ steps.release.outputs.release_created }}
+      tag-name:        ${{ steps.release.outputs.tag_name }}
+      version:         ${{ steps.release.outputs.version }}
+
+    steps:
+      - name: Run release-please
+        id: release
+        uses: google-github-actions/release-please-action@v4
+        with:
+          token: ${{ secrets.github-token }}
+          release-type: ${{ inputs.release-type }}
+          target-branch: ${{ inputs.release-branch }}
+          changelog-types: ${{ inputs.changelog-types }}
+          # Creates a "Release PR" that auto-bumps version and CHANGELOG.md
+          # Merging the Release PR triggers the actual GitHub Release creation.
+
+  # Runs only when a real release is created (Release PR merged)
+  post-release:
+    name: Post Release Tasks
+    needs: release-please
+    if: needs.release-please.outputs.release-created == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag-name }}
+
+      - name: Write release summary
+        run: |
+          echo "### 🚀 Release Published" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Version:** \`${{ needs.release-please.outputs.tag-name }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Branch:** \`${{ inputs.release-branch }}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Notify Slack on release
+        if: inputs.notify-slack && secrets.slack-webhook != ''
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "🚀 *${{ github.repository }}* released *${{ needs.release-please.outputs.tag-name }}*",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "🚀 *<${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ needs.release-please.outputs.tag-name }}|${{ github.repository }} ${{ needs.release-please.outputs.tag-name }}>* has been released!"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.slack-webhook }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

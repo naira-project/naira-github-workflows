@@ -1,0 +1,106 @@
+# SPDX-FileCopyrightText: 2026 Naira Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CI for the shared-workflows repo itself.
+# Validates that workflow YAML syntax is correct and REUSE headers are present.
+
+name: Self CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Validate YAML syntax of all workflow files ────────────────────────────
+  yaml-lint:
+    name: YAML Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install yamllint
+        run: pip install yamllint --quiet
+
+      - name: Lint workflow YAML files
+        run: |
+          yamllint \
+            --config-data "{extends: default, rules: {line-length: {max: 120}, truthy: {allowed-values: ['true', 'false']}}}" \
+            .github/workflows/*.yml \
+            .github/actions/**/*.yml \
+            examples/**/*.yml
+
+  # ── Validate action.yml files are well-formed ─────────────────────────────
+  action-lint:
+    name: Action Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install actionlint
+        run: |
+          bash <(curl -s https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          sudo mv actionlint /usr/local/bin/
+
+      - name: Run actionlint
+        run: actionlint .github/workflows/*.yml
+
+  # ── REUSE compliance on this repo ─────────────────────────────────────────
+  reuse:
+    name: REUSE Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: fsfe/reuse-action@v4
+
+  # ── DCO check on this repo ────────────────────────────────────────────────
+  dco:
+    name: DCO Sign-off
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: christophebedard/dco-check@v0.5.0
+
+  # ── Release (only on push to main) ───────────────────────────────────────
+  release:
+    name: Release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [yaml-lint, action-lint, reuse, dco]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: google-github-actions/release-please-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # ── Gate ──────────────────────────────────────────────────────────────────
+  all-checks:
+    name: All Checks Passed
+    needs: [yaml-lint, action-lint, reuse, dco]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        run: |
+          for r in \
+            "${{ needs.yaml-lint.result }}" \
+            "${{ needs.action-lint.result }}" \
+            "${{ needs.reuse.result }}" \
+            "${{ needs.dco.result }}"; do
+            if [[ "$r" == "failure" || "$r" == "cancelled" ]]; then
+              echo "::error::One or more checks failed."
+              exit 1
+            fi
+          done
+          echo "✅ All self-CI checks passed."

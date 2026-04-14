@@ -1,0 +1,127 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Naira Service Helm Chart Values",
+  "description": "Schema for validating values passed to a Naira service Helm chart.",
+  "type": "object",
+  "required": ["image"],
+  "additionalProperties": false,
+
+  "properties": {
+    "replicaCount": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1,
+      "description": "Number of pod replicas"
+    },
+
+    "image": {
+      "type": "object",
+      "required": ["repository", "tag"],
+      "additionalProperties": false,
+      "properties": {
+        "repository": {
+          "type": "string",
+          "description": "Container image repository, e.g. ghcr.io/naira-project/my-service"
+        },
+        "tag": {
+          "type": "string",
+          "description": "Image tag. Use a specific digest in production."
+        },
+        "pullPolicy": {
+          "type": "string",
+          "enum": ["Always", "IfNotPresent", "Never"],
+          "default": "IfNotPresent"
+        }
+      }
+    },
+
+    "imagePullSecrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" }
+        }
+      },
+      "default": []
+    },
+
+    "serviceAccount": {
+      "type": "object",
+      "properties": {
+        "create": { "type": "boolean", "default": true },
+        "name":   { "type": "string",  "default": "" },
+        "annotations": { "type": "object" }
+      }
+    },
+
+    "service": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["ClusterIP", "NodePort", "LoadBalancer"],
+          "default": "ClusterIP"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 8080
+        }
+      }
+    },
+
+    "resources": {
+      "type": "object",
+      "properties": {
+        "requests": {
+          "type": "object",
+          "properties": {
+            "cpu":    { "type": "string" },
+            "memory": { "type": "string" }
+          }
+        },
+        "limits": {
+          "type": "object",
+          "properties": {
+            "cpu":    { "type": "string" },
+            "memory": { "type": "string" }
+          }
+        }
+      }
+    },
+
+    "autoscaling": {
+      "type": "object",
+      "properties": {
+        "enabled":                        { "type": "boolean", "default": false },
+        "minReplicas":                    { "type": "integer", "minimum": 1 },
+        "maxReplicas":                    { "type": "integer", "minimum": 1 },
+        "targetCPUUtilizationPercentage": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }
+    },
+
+    "podAnnotations":  { "type": "object" },
+    "podLabels":       { "type": "object" },
+    "nodeSelector":    { "type": "object" },
+    "tolerations":     { "type": "array" },
+    "affinity":        { "type": "object" },
+
+    "env": {
+      "type": "array",
+      "description": "Additional environment variables for the container",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name":  { "type": "string" },
+          "value": { "type": "string" },
+          "valueFrom": { "type": "object" }
+        }
+      },
+      "default": []
+    }
+  }
+}

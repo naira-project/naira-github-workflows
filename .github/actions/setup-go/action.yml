@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: 2026 Naira Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+name: "Naira: Setup Go"
+description: "Sets up Go with module caching. Use instead of actions/setup-go directly."
+
+inputs:
+  go-version:
+    description: "Go version to install"
+    required: false
+    default: "1.22"
+  working-directory:
+    description: "Directory containing go.sum for cache keying"
+    required: false
+    default: "."
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Go ${{ inputs.go-version }}
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ inputs.go-version }}
+        cache-dependency-path: ${{ inputs.working-directory }}/go.sum
+
+    - name: Print Go version
+      shell: bash
+      run: go version

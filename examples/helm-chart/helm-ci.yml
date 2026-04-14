@@ -1,0 +1,56 @@
+# SPDX-FileCopyrightText: 2026 Naira Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# ┌──────────────────────────────────────────────────────────────────────────┐
+# │  COPY THIS FILE into your Helm chart repo at:                            │
+# │  .github/workflows/helm-ci.yml                                           │
+# └──────────────────────────────────────────────────────────────────────────┘
+
+name: Helm CI/CD
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "charts/**"
+      - ".github/workflows/helm-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "charts/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── On PRs: lint only ──────────────────────────────────────────────────────
+  helm-lint:
+    name: Helm Lint (PR)
+    if: github.event_name == 'pull_request'
+    uses: naira-project/shared-workflows/.github/workflows/reusable-helm-publish.yml@main
+    with:
+      charts-directory: "charts"
+      publish-method: "oci"
+      lint-only: true          # Only lint, do not push on PRs
+    secrets:
+      registry-password: ${{ secrets.GITHUB_TOKEN }}
+
+  compliance:
+    name: Compliance
+    uses: naira-project/shared-workflows/.github/workflows/reusable-dco-reuse.yml@main
+    with:
+      check-dco: true
+      check-reuse: true
+
+  # ── On merge to main: publish to OCI registry ──────────────────────────────
+  helm-publish:
+    name: Helm Publish (main)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: naira-project/shared-workflows/.github/workflows/reusable-helm-publish.yml@main
+    with:
+      charts-directory: "charts"
+      publish-method: "oci"        # Change to "gh-pages" if preferred
+      lint-only: false
+    secrets:
+      registry-password: ${{ secrets.GITHUB_TOKEN }}

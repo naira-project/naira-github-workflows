@@ -1,0 +1,163 @@
+# SPDX-FileCopyrightText: 2026 Naira Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+name: Reusable · Helm Package & Publish
+
+on:
+  workflow_call:
+    inputs:
+      charts-directory:
+        description: "Directory containing Helm charts"
+        type: string
+        default: "charts"
+      helm-version:
+        description: "Helm CLI version"
+        type: string
+        default: "v3.14.4"
+      publish-method:
+        description: "How to publish: 'oci' (ghcr.io) or 'gh-pages'"
+        type: string
+        default: "oci"
+      registry:
+        description: "OCI registry (used when publish-method=oci)"
+        type: string
+        default: "ghcr.io"
+      lint-only:
+        description: "Only lint charts, do not package or push (useful on PRs)"
+        type: boolean
+        default: false
+    secrets:
+      registry-password:
+        description: "OCI registry password / GITHUB_TOKEN"
+        required: true
+      cr-token:
+        description: "GitHub token for chart-releaser (gh-pages method)"
+        required: false
+
+jobs:
+  helm-lint:
+    name: Helm Lint & Validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # chart-releaser needs full history for gh-pages
+          fetch-depth: 0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ inputs.helm-version }}
+
+      - name: Set up chart-testing (ct)
+        uses: helm/chart-testing-action@v2.6.1
+
+      - name: Detect changed charts
+        id: changed
+        run: |
+          CHANGED=$(ct list-changed --chart-dirs ${{ inputs.charts-directory }} --target-branch ${{ github.event.repository.default_branch }})
+          echo "charts<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$CHANGED" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          if [ -n "$CHANGED" ]; then
+            echo "has-changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-changes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Lint changed charts
+        if: steps.changed.outputs.has-changes == 'true'
+        run: |
+          ct lint \
+            --chart-dirs ${{ inputs.charts-directory }} \
+            --target-branch ${{ github.event.repository.default_branch }} \
+            --validate-maintainers=false
+
+      - name: Validate chart schemas
+        run: |
+          for chart in ${{ inputs.charts-directory }}/*/; do
+            if [ -f "$chart/values.schema.json" ]; then
+              echo "✓ Schema found for $chart"
+              helm lint "$chart" --strict
+            else
+              echo "::warning::No values.schema.json in $chart — consider adding one."
+            fi
+          done
+
+  helm-publish-oci:
+    name: Helm Publish (OCI)
+    needs: helm-lint
+    if: "!inputs.lint-only && inputs.publish-method == 'oci'"
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ inputs.helm-version }}
+
+      - name: Log in to OCI registry
+        run: |
+          echo "${{ secrets.registry-password }}" | \
+          helm registry login ${{ inputs.registry }} \
+            --username ${{ github.actor }} \
+            --password-stdin
+
+      - name: Package and push all charts
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          for chart in ${{ inputs.charts-directory }}/*/; do
+            CHART_NAME=$(basename "$chart")
+            echo "📦 Packaging $CHART_NAME..."
+            helm package "$chart" --destination /tmp/helm-packages/
+
+            PACKAGE=$(ls /tmp/helm-packages/${CHART_NAME}-*.tgz)
+            echo "🚀 Pushing $PACKAGE to oci://${{ inputs.registry }}/${OWNER}/charts"
+            helm push "$PACKAGE" oci://${{ inputs.registry }}/${OWNER}/charts
+          done
+
+      - name: Write job summary
+        run: |
+          echo "### ⎈ Helm Charts Published" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Registry:** \`oci://${{ inputs.registry }}\`" >> "$GITHUB_STEP_SUMMARY"
+          for chart in ${{ inputs.charts-directory }}/*/; do
+            CHART_NAME=$(basename "$chart")
+            VERSION=$(helm show chart "$chart" | grep '^version:' | awk '{print $2}')
+            echo "- \`${CHART_NAME}:${VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+  helm-publish-ghpages:
+    name: Helm Publish (GitHub Pages)
+    needs: helm-lint
+    if: "!inputs.lint-only && inputs.publish-method == 'gh-pages'"
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Run chart-releaser
+        uses: helm/chart-releaser-action@v1.6.0
+        with:
+          charts_dir: ${{ inputs.charts-directory }}
+        env:
+          CR_TOKEN: ${{ secrets.cr-token }}

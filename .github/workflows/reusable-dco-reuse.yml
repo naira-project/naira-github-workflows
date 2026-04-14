@@ -1,0 +1,66 @@
+# SPDX-FileCopyrightText: 2026 Naira Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+name: Reusable · DCO & REUSE Compliance
+
+on:
+  workflow_call:
+    inputs:
+      check-dco:
+        description: "Enforce DCO sign-off on all commits"
+        type: boolean
+        default: true
+      check-reuse:
+        description: "Enforce REUSE/SPDX license compliance"
+        type: boolean
+        default: true
+      reuse-version:
+        description: "REUSE tool version"
+        type: string
+        default: "3.0.2"
+
+jobs:
+  dco-check:
+    name: DCO Sign-off
+    if: inputs.check-dco
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Full history needed to inspect all commits in the PR
+          fetch-depth: 0
+
+      - name: Check DCO sign-off
+        uses: christophebedard/dco-check@v0.5.0
+        with:
+          # Require Signed-off-by: on every commit, not just the PR body
+          check-pr-description: false
+
+  reuse-check:
+    name: REUSE License Compliance
+    if: inputs.check-reuse
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: REUSE compliance check
+        uses: fsfe/reuse-action@v4
+        # This action runs `reuse lint` and fails if any file is missing
+        # a valid SPDX header or if a license is not present in LICENSES/
+
+      - name: Generate REUSE SBOM (SPDX)
+        # Produces a machine-readable bill of materials — useful for audits
+        run: |
+          pip install reuse==${{ inputs.reuse-version }} --quiet
+          reuse spdx --output reuse-sbom.spdx
+
+      - name: Upload REUSE SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: reuse-sbom-${{ github.sha }}
+          path: reuse-sbom.spdx
+          retention-days: 30

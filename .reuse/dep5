@@ -1,0 +1,14 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: naira-shared-workflows
+Upstream-Contact: naira-project@example.com
+Source: https://github.com/naira-project/shared-workflows
+
+# The Apache-2.0 license text itself is in the public domain
+Files: LICENSES/*.txt
+Copyright: Apache Software Foundation
+License: Apache-2.0
+
+# JSON config files that cannot carry inline headers
+Files: *.json
+Copyright: 2026 Naira Project Contributors
+License: Apache-2.0

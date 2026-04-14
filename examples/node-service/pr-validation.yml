@@ -1,0 +1,76 @@
+# SPDX-FileCopyrightText: 2026 Naira Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# ┌──────────────────────────────────────────────────────────────────────────┐
+# │  COPY THIS FILE into your Node/frontend service repo at:                 │
+# │  .github/workflows/pr-validation.yml                                     │
+# └──────────────────────────────────────────────────────────────────────────┘
+
+name: PR Validation
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compliance:
+    name: Compliance
+    uses: naira-project/shared-workflows/.github/workflows/reusable-dco-reuse.yml@main
+    with:
+      check-dco: true
+      check-reuse: true
+
+  node-lint:
+    name: Lint & Typecheck
+    uses: naira-project/shared-workflows/.github/workflows/reusable-node-lint.yml@main
+    with:
+      node-version: "20"
+      package-manager: "npm"
+      lint-script: "lint"
+      typecheck-script: "typecheck"
+
+  security:
+    name: Security
+    uses: naira-project/shared-workflows/.github/workflows/reusable-security-scan.yml@main
+    with:
+      scan-filesystem: true
+      run-govulncheck: false   # Not a Go project
+      severity: "HIGH"
+    permissions:
+      security-events: write
+      contents: read
+
+  container-build:
+    name: Container Build
+    uses: naira-project/shared-workflows/.github/workflows/reusable-container-build.yml@main
+    with:
+      push: false
+      platforms: "linux/amd64,linux/arm64"
+    secrets:
+      registry-password: ${{ secrets.GITHUB_TOKEN }}
+
+  all-checks:
+    name: All Checks Passed
+    needs: [compliance, node-lint, security, container-build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        run: |
+          for r in \
+            "${{ needs.compliance.result }}" \
+            "${{ needs.node-lint.result }}" \
+            "${{ needs.security.result }}" \
+            "${{ needs.container-build.result }}"; do
+            if [[ "$r" == "failure" || "$r" == "cancelled" ]]; then
+              echo "::error::One or more required checks failed."
+              exit 1
+            fi
+          done
+          echo "✅ All checks passed."

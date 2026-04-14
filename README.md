@@ -1,36 +1,86 @@
-# SAP Repository Template
-
-Default templates for SAP open source repositories, including LICENSE, .reuse/dep5, Code of Conduct, etc... All repositories on github.com/SAP will be created based on this template.
-
-## To-Do
-
-In case you are the maintainer of a new SAP open source project, these are the steps to do with the template files:
-
-- Check if the default license (Apache 2.0) also applies to your project. A license change should only be required in exceptional cases. If this is the case, please change the [license file](LICENSE).
-- Enter the correct metadata for the REUSE tool. See our [wiki page](https://wiki.one.int.sap/wiki/display/ospodocs/Using+the+Reuse+Tool+of+FSFE+for+Copyright+and+License+Information) for details how to do it. You can find an initial .reuse/dep5 file to build on. Please replace the parts inside the single angle quotation marks < > by the specific information for your repository and be sure to run the REUSE tool to validate that the metadata is correct.
-- Adjust the contribution guidelines (e.g. add coding style guidelines, pull request checklists, different license if needed etc.)
-- Add information about your project to this README (name, description, requirements etc). Especially take care for the <your-project> placeholders - those ones need to be replaced with your project name. See the sections below the horizontal line and [our guidelines on our wiki page](https://wiki.one.int.sap/wiki/pages/viewpage.action?pageId=3564976048#GuidelinesforGitHubHealthfiles(Readme,Contributing,CodeofConduct)-Readme.md) what is required and recommended.
-- Adjust the AGENTS.md file for the corresponding repository.
-- Remove all content in this README above and including the horizontal line ;)
-
-***
-
-# Our new open source project
-
 ## About this project
 
-*Insert a short description of your project here...*
+**Naira** is an open-source **AI Engineering Development Platform** for cloud-native teams building and operating AI-enabled products on Kubernetes.
 
-## Requirements and Setup
+AI engineering today is fragmented: models, inferencing, gateways, observability, policies, and application delivery are spread across many tools, teams, and workflows. Naira brings these worlds together into one coherent platform experience.
 
-*Insert a short description what is required to get your project running...*
+Naira helps teams:
+
+- **Discover and manage AI assets** across models, datasets, inference endpoints, and integrations  
+- **Orchestrate AI platform workflows** using an opinionated, extensible architecture  
+- **Improve reliability and governance** with unified visibility, policy integration, and auditability  
+- **Accelerate delivery** through reusable templates, golden paths, and ecosystem plugins  
+- **Avoid lock-in** by integrating existing best-of-breed tools instead of replacing them  
+
+Built with and for the cloud-native ecosystem, Naira is designed to integrate closely with technologies such as **PlatformMesh**, **OpenMFP/Luigi**, **KCP**, and other components of the NeoNephos stack.
+
+# Naira Shared CI/CD Workflows
+
+Central repository for reusable GitHub Actions workflows used across all Naira project repositories.
+
+## Repository Structure
+
+```
+naira-github-workflows/
+├── .github/
+│   ├── workflows/                  # Reusable workflows (called by other repos)
+│   │   ├── reusable-go-lint.yml
+│   │   ├── reusable-node-lint.yml
+│   │   ├── reusable-go-test.yml
+│   │   ├── reusable-dco-reuse.yml
+│   │   ├── reusable-container-build.yml
+│   │   ├── reusable-helm-publish.yml
+│   │   ├── reusable-security-scan.yml
+│   │   └── reusable-release.yml
+│   └── actions/                    # Composite actions (shared steps)
+│       ├── setup-go/
+│       ├── setup-node/
+│       └── docker-meta/
+├── examples/                       # Caller workflow examples per repo type
+│   ├── go-service/
+│   ├── node-service/
+│   └── helm-chart/
+└── docs/
+    ├── usage.md
+    └── troubleshooting.md
+```
+
+## How to Use in Your Repository
+
+All reusable workflows are called using:
+
+```yaml
+uses: naira-project/naira-github-workflows/.github/workflows/<workflow-name>.yml@main
+```
+
+Refer to the `examples/` directory for complete caller workflow templates per service type.
+
+## Permissions Required
+
+Each consuming repository must have the following settings enabled:
+- **Settings → Actions → General**: Allow GitHub Actions, allow reusable workflows
+- **Settings → Secrets**: Org-level secrets are inherited automatically
+
+## Org-Level Secrets Required
+
+| Secret Name | Purpose |
+|---|---|
+| `REGISTRY_TOKEN` | ghcr.io push access (fallback if GITHUB_TOKEN insufficient) |
+| `SLACK_WEBHOOK_URL` | Pipeline failure notifications |
+
+## Contributing
+
+All changes to shared workflows require:
+1. A PR with at least one reviewer
+2. Testing against a sample consumer repo
+3. Version tag bump following semver (`v1.2.3`)
 
 ## Support, Feedback, Contributing
 
-This project is open to feature requests/suggestions, bug reports etc. via [GitHub issues](https://github.com/naira-project/<your-project>/issues). Contribution and feedback are encouraged and always welcome. For more information about how to contribute, the project structure, as well as additional contribution information, see our [Contribution Guidelines](CONTRIBUTING.md).
+This project is open to feature requests/suggestions, bug reports etc. via [GitHub issues](https://github.com/naira-project/naira-github-workflows/issues). Contribution and feedback are encouraged and always welcome. For more information about how to contribute, the project structure, as well as additional contribution information, see our [Contribution Guidelines](CONTRIBUTING.md).
 
 ## Security / Disclosure
-If you find any bug that may be a security problem, please follow our instructions at [in our security policy](https://github.com/naira-project/<your-project>/security/policy) on how to report it. Please do not create GitHub issues for security-related doubts or problems.
+If you find any bug that may be a security problem, please follow our instructions at [in our security policy](https://github.com/naira-project/naira-github-workflows/security/policy) on how to report it. Please do not create GitHub issues for security-related doubts or problems.
 
 ## Code of Conduct
 
