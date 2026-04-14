@@ -73,6 +73,8 @@ jobs:
         with:
           fetch-depth: 0
       - uses: christophebedard/dco-check@0.5.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ── Release (only on push to main) ───────────────────────────────────────
   release:

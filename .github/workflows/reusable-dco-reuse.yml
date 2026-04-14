@@ -38,6 +38,8 @@ jobs:
         with:
           # Require Signed-off-by: on every commit, not just the PR body
           check-pr-description: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   reuse-check:
     name: REUSE License Compliance
