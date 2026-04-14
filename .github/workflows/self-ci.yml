@@ -72,7 +72,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: christophebedard/dco-check@v0.5.0
+      - uses: christophebedard/dco-check@0.5.0
 
   # ── Release (only on push to main) ───────────────────────────────────────
   release:
