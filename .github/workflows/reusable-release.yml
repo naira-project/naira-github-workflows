@@ -81,7 +81,7 @@ jobs:
 
     steps:
       - name: Checkout tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.release-please.outputs.tag-name }}
 
@@ -93,7 +93,7 @@ jobs:
 
       - name: Notify Slack on release
         if: inputs.notify-slack && secrets.slack-webhook != ''
-        uses: slackapi/slack-github-action@v1.26.0
+        uses: slackapi/slack-github-action@v3.0.1
         with:
           payload: |
             {
