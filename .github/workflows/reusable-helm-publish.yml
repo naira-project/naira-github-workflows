@@ -84,7 +84,7 @@ jobs:
 
       - name: Validate chart schemas
         run: |
-          for chart in ${{ inputs.charts-directory }}/*/; do
+          for chart in "${{ inputs.charts-directory }}"/*/; do
             if [ -f "$chart/values.schema.json" ]; then
               echo "✓ Schema found for $chart"
               helm lint "$chart" --strict
@@ -135,14 +135,14 @@ jobs:
               exit 1
             fi
             echo "🚀 Pushing $PACKAGE to oci://${{ inputs.registry }}/${OWNER}/charts"
-            helm push "$PACKAGE" oci://${{ inputs.registry }}/${OWNER}/charts
+            helm push "$PACKAGE" "oci://${{ inputs.registry }}/${OWNER}/charts"
           done
 
       - name: Write job summary
         run: |
           echo "### ⎈ Helm Charts Published" >> "$GITHUB_STEP_SUMMARY"
           echo "**Registry:** \`oci://${{ inputs.registry }}\`" >> "$GITHUB_STEP_SUMMARY"
-          for chart in ${{ inputs.charts-directory }}/*/; do
+          for chart in "${{ inputs.charts-directory }}"/*/; do
             CHART_NAME=$(basename "$chart")
             VERSION=$(helm show chart "$chart" | grep '^version:' | awk '{print $2}')
             echo "- \`${CHART_NAME}:${VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
