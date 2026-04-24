@@ -28,7 +28,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           # Full history needed to inspect all commits in the PR
           fetch-depth: 0
@@ -49,10 +49,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: REUSE compliance check
-        uses: fsfe/reuse-action@v4
+        uses: fsfe/reuse-action@v6
         # This action runs `reuse lint` and fails if any file is missing
         # a valid SPDX header or if a license is not present in LICENSES/
 
@@ -63,7 +63,7 @@ jobs:
           reuse spdx --output reuse-sbom.spdx
 
       - name: Upload REUSE SBOM
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: reuse-sbom-${{ github.sha }}
           path: reuse-sbom.spdx
