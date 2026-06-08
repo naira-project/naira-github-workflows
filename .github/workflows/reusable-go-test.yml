@@ -103,7 +103,7 @@ jobs:
         # Only uploads if CODECOV_TOKEN is available in the calling repo
         id: codecov
         continue-on-error: true
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           files: ${{ inputs.working-directory }}/coverage.out
           flags: unittests
