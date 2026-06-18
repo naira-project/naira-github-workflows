@@ -153,7 +153,6 @@ jobs:
       - name: Install Cosign
         if: inputs.push && inputs.sign
         uses: sigstore/cosign-installer@v4.1.0
-      
 
       - name: Sign image with Cosign (keyless)
         if: inputs.push && inputs.sign

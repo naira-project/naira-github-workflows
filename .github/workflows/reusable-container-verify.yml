@@ -36,4 +36,3 @@ jobs:
             --certificate-identity-regexp "${{ inputs.certificate-identity-regexp }}" \
             --certificate-oidc-issuer "${{ inputs.certificate-oidc-issuer }}" \
             "${{ inputs.image-ref }}"
-        # cosign exits non-zero if no valid signature is found — this blocks the release gate.
