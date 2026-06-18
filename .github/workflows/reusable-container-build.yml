@@ -65,6 +65,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      attestations: write
       # Required for SLSA provenance attestation
       id-token: write
 
