@@ -221,11 +221,17 @@ uses: naira-project/shared-workflows/.github/workflows/reusable-release.yml@main
 with:
   release-type: go               # go | node | helm | simple
   release-branch: main
+  config-file: release-please-config.json      # optional; enables changelog-sections
+  manifest-file: .release-please-manifest.json # optional
   notify-slack: true
 secrets:
   github-token: ${{ secrets.GITHUB_TOKEN }}
   slack-webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
 ```
+
+Customize changelog grouping in `release-please-config.json` with `changelog-sections`.
+The previous `changelog-types` workflow input is deprecated and ignored because
+`googleapis/release-please-action@v4` does not support it as an action input.
 
 **How release-please works:**
 
