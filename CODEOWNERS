@@ -1,2 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Naira Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# All changes to shared workflows require review from the platform team.
+
 * @naira-project/dev @naira-project/maintainer
 /.github/* @naira-project/auto

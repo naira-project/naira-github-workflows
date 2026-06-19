@@ -87,7 +87,9 @@ naira-github-workflows/
 - Breaking changes to workflow inputs/outputs require a major version bump and must be documented in `docs/usage.md`.
 
 ### Compliance Requirements
+<!-- REUSE-IgnoreStart -->
 - Every new file must have an SPDX header (`SPDX-License-Identifier: Apache-2.0`) or be covered by `REUSE.toml`.
+<!-- REUSE-IgnoreEnd -->
 - Every commit must be signed off (`git commit -s`) for DCO compliance.
 - Apache-2.0 is the only permitted license for new content.
 

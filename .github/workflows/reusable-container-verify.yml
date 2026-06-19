@@ -1,0 +1,38 @@
+# SPDX-FileCopyrightText: 2026 Naira Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+name: Reusable · Container Signature Verify
+
+on:
+  workflow_call:
+    inputs:
+      image-ref:
+        description: "Full image ref including digest (e.g. ghcr.io/org/img@sha256:...)"
+        type: string
+        required: true
+      certificate-identity-regexp:
+        description: "Regexp matching the signing workflow's OIDC identity (job_workflow_ref)"
+        type: string
+        default: "https://github.com/naira-project/naira-github-workflows/.github/workflows/reusable-container-build.yml@.*"
+      certificate-oidc-issuer:
+        description: "Expected OIDC issuer"
+        type: string
+        default: "https://token.actions.githubusercontent.com"
+
+jobs:
+  verify:
+    name: Verify Signature · ${{ inputs.image-ref }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.1.0
+
+      - name: Verify image signature
+        run: |
+          cosign verify \
+            --certificate-identity-regexp "${{ inputs.certificate-identity-regexp }}" \
+            --certificate-oidc-issuer "${{ inputs.certificate-oidc-issuer }}" \
+            "${{ inputs.image-ref }}"
