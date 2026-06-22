@@ -73,6 +73,10 @@ jobs:
         with:
           fetch-depth: 0
       - uses: christophebedard/dco-check@7b0205d25ead0f898e0b706b58227dd5fa7e3f55 # 0.5.0
+        with:
+          args: >-
+            --exclude-emails
+            49699333+dependabot[bot]@users.noreply.github.com
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
