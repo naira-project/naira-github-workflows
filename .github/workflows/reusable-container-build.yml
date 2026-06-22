@@ -189,7 +189,7 @@ jobs:
             echo "**Digest:** \`${STEPS_PUSH_OUTPUTS_DIGEST}\`"
             echo "**Tags:**"
           } >> "$GITHUB_STEP_SUMMARY"
-          echo '${STEPS_META_OUTPUTS_TAGS}' | tr ',' '\n' | while read -r tag; do
+          echo "${STEPS_META_OUTPUTS_TAGS}" | tr ',' '\n' | while read -r tag; do
             echo "- \`$tag\`" >> "$GITHUB_STEP_SUMMARY"
           done
         env:
