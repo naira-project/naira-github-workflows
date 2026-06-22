@@ -33,6 +33,10 @@ jobs:
       - name: Verify image signature
         run: |
           cosign verify \
-            --certificate-identity-regexp "${{ inputs.certificate-identity-regexp }}" \
-            --certificate-oidc-issuer "${{ inputs.certificate-oidc-issuer }}" \
-            "${{ inputs.image-ref }}"
+            --certificate-identity-regexp "${INPUTS_CERTIFICATE_IDENTITY_REGEXP}" \
+            --certificate-oidc-issuer "${INPUTS_CERTIFICATE_OIDC_ISSUER}" \
+            "${INPUTS_IMAGE_REF}"
+        env:
+          INPUTS_CERTIFICATE_IDENTITY_REGEXP: ${{ inputs.certificate-identity-regexp }}
+          INPUTS_CERTIFICATE_OIDC_ISSUER: ${{ inputs.certificate-oidc-issuer }}
+          INPUTS_IMAGE_REF: ${{ inputs.image-ref }}
