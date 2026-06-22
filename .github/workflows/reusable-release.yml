@@ -14,19 +14,14 @@ on:
         description: "Branch to cut releases from"
         type: string
         default: "main"
-      changelog-types:
-        description: "JSON array of conventional commit types to include in changelog"
+      config-file:
+        description: "Path to release-please config. Use changelog-sections there for changelog grouping."
         type: string
-        default: |
-          [
-            {"type": "feat",     "section": "✨ Features"},
-            {"type": "fix",      "section": "🐛 Bug Fixes"},
-            {"type": "perf",     "section": "⚡ Performance"},
-            {"type": "refactor", "section": "♻️  Refactoring", "hidden": true},
-            {"type": "docs",     "section": "📚 Documentation"},
-            {"type": "chore",    "section": "🔧 Chores", "hidden": true},
-            {"type": "ci",       "section": "👷 CI", "hidden": true}
-          ]
+        default: ""
+      manifest-file:
+        description: "Path to release-please manifest"
+        type: string
+        default: ""
       notify-slack:
         description: "Post Slack notification on release"
         type: boolean
@@ -62,12 +57,13 @@ jobs:
     steps:
       - name: Run release-please
         id: release
-        uses: google-github-actions/release-please-action@e4dc86ba9405554aeba3c6bb2d169500e7d3b4ee # v4.1.1
+        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
         with:
           token: ${{ secrets.github-token || github.token }}
           release-type: ${{ inputs.release-type }}
           target-branch: ${{ inputs.release-branch }}
-          changelog-types: ${{ inputs.changelog-types }}
+          config-file: ${{ inputs.config-file }}
+          manifest-file: ${{ inputs.manifest-file }}
           # Creates a "Release PR" that auto-bumps version and CHANGELOG.md
           # Merging the Release PR triggers the actual GitHub Release creation.
 
