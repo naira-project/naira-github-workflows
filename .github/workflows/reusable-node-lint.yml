@@ -88,14 +88,16 @@ jobs:
 
       # ── Lint ───────────────────────────────────────────────────────────────
       - name: Run ESLint
-        run: ${INPUTS_PACKAGE_MANAGER} run ${INPUTS_LINT_SCRIPT}
+        run: |
+          "${INPUTS_PACKAGE_MANAGER}" run "${INPUTS_LINT_SCRIPT}"
         env:
           INPUTS_PACKAGE_MANAGER: ${{ inputs.package-manager }}
           INPUTS_LINT_SCRIPT: ${{ inputs.lint-script }}
 
       - name: Run TypeScript typecheck
         if: inputs.typecheck-script != ''
-        run: ${INPUTS_PACKAGE_MANAGER} run ${INPUTS_TYPECHECK_SCRIPT}
+        run: |
+          "${INPUTS_PACKAGE_MANAGER}" run "${INPUTS_TYPECHECK_SCRIPT}"
         env:
           INPUTS_PACKAGE_MANAGER: ${{ inputs.package-manager }}
           INPUTS_TYPECHECK_SCRIPT: ${{ inputs.typecheck-script }}
@@ -104,7 +106,7 @@ jobs:
       - name: Check Prettier formatting
         run: |
           if [ -f ".prettierrc" ] || [ -f ".prettierrc.json" ] || [ -f "prettier.config.js" ]; then
-            ${INPUTS_PACKAGE_MANAGER} run format:check 2>/dev/null || \
+            "${INPUTS_PACKAGE_MANAGER}" run format:check 2>/dev/null || \
               echo "::warning::No format:check script found, skipping Prettier check."
           else
             echo "No Prettier config found, skipping."

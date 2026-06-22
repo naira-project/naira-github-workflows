@@ -62,7 +62,7 @@ jobs:
       - name: Generate REUSE SBOM (SPDX)
         # Produces a machine-readable bill of materials — useful for audits
         run: |
-          pip install reuse==${INPUTS_REUSE_VERSION} --quiet --break-system-packages
+          pip install "reuse==${INPUTS_REUSE_VERSION}" --quiet --break-system-packages
           reuse spdx --output reuse-sbom.spdx
         env:
           INPUTS_REUSE_VERSION: ${{ inputs.reuse-version }}
