@@ -74,7 +74,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       # ── Resolve image name ─────────────────────────────────────────────────
       - name: Resolve image name
@@ -152,7 +152,7 @@ jobs:
 
       - name: Install Cosign
         if: inputs.push && inputs.sign
-        uses: sigstore/cosign-installer@v4.1.0
+        uses: sigstore/cosign-installer@v4.1.2
 
       - name: Sign image with Cosign (keyless)
         if: inputs.push && inputs.sign

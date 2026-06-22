@@ -38,7 +38,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       # Resolve the correct lockfile for the chosen package manager.
       # Each package manager uses a different lockfile name; using the wrong
