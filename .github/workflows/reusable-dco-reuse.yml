@@ -28,13 +28,13 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           # Full history needed to inspect all commits in the PR
           fetch-depth: 0
 
       - name: Check DCO sign-off
-        uses: christophebedard/dco-check@v0.5.0
+        uses: christophebedard/dco-check@ec8bfc43106afe98b323ace9133650df10497e12 # 0.5.1
         with:
           # Require Signed-off-by: on every commit, not just the PR body
           check-pr-description: false
@@ -49,10 +49,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: REUSE compliance check
-        uses: fsfe/reuse-action@v6
+        uses: fsfe/reuse-action@676e2d560c9a403aa252096d99fcab3e1132b0f5 # v6.0.0
         # This action runs `reuse lint` and fails if any file is missing
         # a valid SPDX header or if a license is not present in LICENSES/
 
@@ -63,7 +63,7 @@ jobs:
           reuse spdx --output reuse-sbom.spdx
 
       - name: Upload REUSE SBOM
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: reuse-sbom-${{ github.sha }}
           path: reuse-sbom.spdx
