@@ -62,7 +62,33 @@ jobs:
           sudo mv actionlint /usr/local/bin/
 
       - name: Run actionlint
-        run: actionlint .github/workflows/*.yml
+        run: actionlint -color .github/workflows/*.yml
+
+  # ── Security linter for Actions ───────────────────────────────────────────
+  zizmor:
+    name: zizmor (Actions SAST)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+
+      # Pinned zizmor release. --offline keeps the audit hermetic (no network
+      # calls about the actions it inspects); --min-severity=low surfaces
+      # everything so nothing slips through under the gate.
+      - name: Run zizmor
+        run: |
+          set -euo pipefail
+          pip install zizmor==1.25.2
+          zizmor --offline --min-severity=low .github/workflows/
 
   # ── REUSE compliance on this repo ─────────────────────────────────────────
   reuse:
