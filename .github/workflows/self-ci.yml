@@ -127,7 +127,7 @@ jobs:
   release:
     name: Release
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [yaml-lint, action-lint, reuse, dco]
+    needs: [yaml-lint, action-lint, zizmor, reuse, dco]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -146,7 +146,7 @@ jobs:
   # rules. Release failures are visible in the Actions UI but do not block merges.
   all-checks:
     name: All Checks Passed
-    needs: [yaml-lint, action-lint, reuse, dco]
+    needs: [yaml-lint, action-lint, zizmor, reuse, dco]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -157,6 +157,7 @@ jobs:
           for r in \
             "${{ needs.yaml-lint.result }}" \
             "${{ needs.action-lint.result }}" \
+            "${{ needs.zizmor.result }}" \
             "${{ needs.reuse.result }}" \
             "${{ needs.dco.result }}"; do
             if [[ "$r" == "failure" || "$r" == "cancelled" ]]; then
