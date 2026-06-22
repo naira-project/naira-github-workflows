@@ -52,14 +52,85 @@ on:
     outputs:
       image-digest:
         description: "Published image digest (sha256:...)"
-        value: ${{ jobs.build-push.outputs.digest }}
+        value: ${{ jobs.build-push.outputs.digest || jobs.build-only.outputs.digest }}
       image-tags:
         description: "Comma-separated list of applied image tags"
-        value: ${{ jobs.build-push.outputs.tags }}
+        value: ${{ jobs.build-push.outputs.tags || jobs.build-only.outputs.tags }}
 
 jobs:
+  # ── Build-only path (PRs / dry-runs): no elevated permissions needed ───────
+  build-only:
+    name: Build (${{ inputs.platforms }})
+    if: ${{ !inputs.push }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      tags: ${{ steps.meta.outputs.tags }}
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Resolve image name
+        id: image
+        run: |
+          NAME="${{ inputs.image-name }}"
+          if [ -z "$NAME" ]; then
+            NAME="${{ inputs.registry }}/$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')"
+          else
+            NAME="${{ inputs.registry }}/$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')/$NAME"
+          fi
+          echo "full=$NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
+        with:
+          images: ${{ steps.image.outputs.full }}
+          labels: |
+            org.opencontainers.image.vendor=Naira Project
+            ${{ inputs.image-labels }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=ref,event=branch
+            type=ref,event=pr
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=sha-,format=short
+
+      - name: Set up QEMU (for cross-arch builds)
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+        with:
+          driver-opts: image=moby/buildkit:latest
+
+      - name: Build image (no push)
+        id: build
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          platforms: ${{ inputs.platforms }}
+          push: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: ${{ inputs.build-args }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          sbom: true
+          provenance: true
+
+  # ── Publish path: elevated permissions scoped to this job only ─────────────
   build-push:
     name: Build & Push (${{ inputs.platforms }})
+    if: ${{ inputs.push }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
@@ -69,7 +140,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-      # Required for SLSA provenance attestation
+      # Required for Cosign keyless signing and SLSA provenance attestation
       id-token: write
       attestations: write
 
@@ -125,14 +196,13 @@ jobs:
 
       # ── Registry login ─────────────────────────────────────────────────────
       - name: Log in to ${{ inputs.registry }}
-        if: inputs.push
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           registry: ${{ inputs.registry }}
           username: ${{ secrets.registry-username || github.actor }}
           password: ${{ secrets.registry-password }}
 
-      # ── Build (and optionally push) ────────────────────────────────────────
+      # ── Build and push ─────────────────────────────────────────────────────
       - name: Build and push image
         id: push
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
@@ -140,7 +210,7 @@ jobs:
           context: ${{ inputs.context }}
           file: ${{ inputs.dockerfile }}
           platforms: ${{ inputs.platforms }}
-          push: ${{ inputs.push }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: ${{ inputs.build-args }}
@@ -152,11 +222,11 @@ jobs:
           provenance: true
 
       - name: Install Cosign
-        if: inputs.push && inputs.sign
+        if: inputs.sign
         uses: sigstore/cosign-installer@ba7bc0a3fef59531c69a25acd34668d6d3fe6f22 # v4.1.0
 
       - name: Sign image with Cosign (keyless)
-        if: inputs.push && inputs.sign
+        if: inputs.sign
         run: |
           cosign sign --yes \
             "${{ steps.image.outputs.full }}@${{ steps.push.outputs.digest }}"
@@ -165,7 +235,6 @@ jobs:
 
       # ── Attestation (SLSA Level 2) ─────────────────────────────────────────
       - name: Attest image provenance
-        if: inputs.push
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-name: ${{ steps.image.outputs.full }}
@@ -174,7 +243,6 @@ jobs:
 
       # ── Summary ───────────────────────────────────────────────────────────
       - name: Write job summary
-        if: inputs.push
         run: |
           {
             echo "### 🐳 Image Published"
