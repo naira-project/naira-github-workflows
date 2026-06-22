@@ -71,6 +71,7 @@ jobs:
       packages: write
       # Required for SLSA provenance attestation
       id-token: write
+      attestations: write
 
     steps:
       - name: Checkout code
