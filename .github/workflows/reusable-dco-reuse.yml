@@ -35,9 +35,6 @@ jobs:
 
       - name: Check DCO sign-off
         uses: christophebedard/dco-check@ec8bfc43106afe98b323ace9133650df10497e12 # 0.5.1
-        with:
-          # Require Signed-off-by: on every commit, not just the PR body
-          check-pr-description: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
