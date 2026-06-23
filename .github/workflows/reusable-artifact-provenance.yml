@@ -66,9 +66,9 @@ jobs:
       - name: Resolve provenance paths
         id: paths
         run: |
-          PROVENANCE_NAME="${{ inputs.provenance-artifact-name }}"
+          PROVENANCE_NAME="${INPUTS_PROVENANCE_ARTIFACT_NAME}"
           if [ -z "$PROVENANCE_NAME" ]; then
-            PROVENANCE_NAME="${{ inputs.artifact-name }}-provenance"
+            PROVENANCE_NAME="${INPUTS_ARTIFACT_NAME}-provenance"
           fi
           mkdir -p provenance
           {
@@ -76,11 +76,14 @@ jobs:
             echo "metadata=provenance/build-inputs.json"
             echo "provenance-artifact-name=$PROVENANCE_NAME"
           } >> "$GITHUB_OUTPUT"
+        env:
+          INPUTS_PROVENANCE_ARTIFACT_NAME: ${{ inputs.provenance-artifact-name }}
+          INPUTS_ARTIFACT_NAME: ${{ inputs.artifact-name }}
 
       - name: Generate artifact checksums
         working-directory: ${{ inputs.artifact-path }}
         run: |
-          SUBJECT="${{ inputs.subject-path }}"
+          SUBJECT="${INPUTS_SUBJECT_PATH}"
           CHECKSUMS="${{ github.workspace }}/${{ steps.paths.outputs.checksums }}"
           if [ "$SUBJECT" = "." ]; then
             find . -type f -print0 | sort -z | xargs -0 sha256sum > "$CHECKSUMS"
@@ -104,20 +107,22 @@ jobs:
               fi
             done
           fi
+        env:
+          INPUTS_SUBJECT_PATH: ${{ inputs.subject-path }}
 
       - name: Record build context
         run: |
           jq -n \
             --arg source_repository "${{ github.repository }}" \
-            --arg source_ref "${{ github.ref }}" \
+            --arg source_ref "${GITHUB_REF}" \
             --arg source_sha "${{ github.sha }}" \
-            --arg workflow_ref "${{ github.workflow_ref }}" \
-            --arg workflow_sha "${{ github.workflow_sha }}" \
+            --arg workflow_ref "${GITHUB_WORKFLOW_REF}" \
+            --arg workflow_sha "${GITHUB_WORKFLOW_SHA}" \
             --arg run_id "${{ github.run_id }}" \
             --arg run_attempt "${{ github.run_attempt }}" \
-            --arg artifact_name "${{ inputs.artifact-name }}" \
-            --arg subject_path "${{ inputs.subject-path }}" \
-            --arg build_inputs "${{ inputs.build-inputs }}" \
+            --arg artifact_name "${INPUTS_ARTIFACT_NAME}" \
+            --arg subject_path "${INPUTS_SUBJECT_PATH}" \
+            --arg build_inputs "${INPUTS_BUILD_INPUTS}" \
             '{
               source_repository: $source_repository,
               source_ref: $source_ref,
@@ -130,6 +135,10 @@ jobs:
               subject_path: $subject_path,
               build_inputs: ($build_inputs | split("\n") | map(select(length > 0)))
             }' > "${{ steps.paths.outputs.metadata }}"
+        env:
+          INPUTS_ARTIFACT_NAME: ${{ inputs.artifact-name }}
+          INPUTS_SUBJECT_PATH: ${{ inputs.subject-path }}
+          INPUTS_BUILD_INPUTS: ${{ inputs.build-inputs }}
 
       - name: Attest artifact checksums
         id: attest
@@ -152,8 +161,10 @@ jobs:
         run: |
           {
             echo "### Artifact Provenance"
-            echo "**Artifact:** \`${{ inputs.artifact-name }}\`"
+            echo "**Artifact:** \`${INPUTS_ARTIFACT_NAME}\`"
             echo "**Checksums:** \`${{ steps.paths.outputs.checksums }}\`"
             echo "**Attestation:** ${{ steps.attest.outputs.attestation-url }}"
             echo "**Provenance Artifact:** \`${{ steps.paths.outputs.provenance-artifact-name }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          INPUTS_ARTIFACT_NAME: ${{ inputs.artifact-name }}
