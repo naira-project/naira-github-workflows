@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Triggered on merge to main. Runs release-please, then on actual release:
-# builds + pushes multi-arch container image and scans it.
+# builds + pushes multi-arch container image, verifies provenance, and scans it.
 
 name: Release
 
@@ -53,3 +53,13 @@ jobs:
     permissions:
       security-events: write
       contents: read
+
+  # ── 4. Verify the released image signature and provenance ─────────────────
+  image-verify:
+    name: Verify Released Image
+    needs: [release, container-publish]
+    if: needs.release.outputs.release-created == 'true'
+    uses: naira-project/shared-workflows/.github/workflows/reusable-container-verify.yml@main
+    with:
+      image-ref: ${{ needs.container-publish.outputs.image-ref }}
+      source-digest: ${{ github.sha }}

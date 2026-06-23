@@ -18,21 +18,78 @@ on:
         description: "Expected OIDC issuer"
         type: string
         default: "https://token.actions.githubusercontent.com"
+      verify-signature:
+        description: "Verify the Cosign image signature"
+        type: boolean
+        default: true
+      verify-provenance:
+        description: "Verify the GitHub SLSA provenance attestation"
+        type: boolean
+        default: true
+      source-repo:
+        description: "Repository associated with the attestation lookup (owner/repo). Defaults to the caller repository."
+        type: string
+        default: ""
+      source-digest:
+        description: "Expected source commit SHA. Leave empty to skip source digest enforcement."
+        type: string
+        default: ""
+      signer-workflow:
+        description: "Reusable workflow expected to have signed the provenance"
+        type: string
+        default: "naira-project/naira-github-workflows/.github/workflows/reusable-container-build.yml"
 
 jobs:
   verify:
-    name: Verify Signature · ${{ inputs.image-ref }}
+    name: Verify Image · ${{ inputs.image-ref }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
+      attestations: read
     steps:
       - name: Install Cosign
-        uses: sigstore/cosign-installer@ba7bc0a3fef59531c69a25acd34668d6d3fe6f22 # v4.1.0
+        if: inputs.verify-signature
+        uses: sigstore/cosign-installer@ba7bc0a3fef59531c69a25acd34668d6d3fe6f22  # v4.1.0
 
       - name: Verify image signature
+        if: inputs.verify-signature
         run: |
           cosign verify \
             --certificate-identity-regexp "${{ inputs.certificate-identity-regexp }}" \
             --certificate-oidc-issuer "${{ inputs.certificate-oidc-issuer }}" \
             "${{ inputs.image-ref }}"
+
+      - name: Verify image provenance
+        if: inputs.verify-provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SOURCE_REPO="${{ inputs.source-repo }}"
+          if [ -z "$SOURCE_REPO" ]; then
+            SOURCE_REPO="${{ github.repository }}"
+          fi
+
+          VERIFY_ARGS=(
+            "oci://${{ inputs.image-ref }}"
+            "--repo" "$SOURCE_REPO"
+            "--signer-workflow" "${{ inputs.signer-workflow }}"
+            "--cert-oidc-issuer" "${{ inputs.certificate-oidc-issuer }}"
+            "--format" "json"
+          )
+
+          if [ -n "${{ inputs.source-digest }}" ]; then
+            VERIFY_ARGS+=("--source-digest" "${{ inputs.source-digest }}")
+          fi
+
+          gh attestation verify "${VERIFY_ARGS[@]}" \
+            --jq '.[].verificationResult.statement | {predicateType, subject}'
+
+      - name: Write job summary
+        run: |
+          {
+            echo "### Container Verification"
+            echo "**Image:** \`${{ inputs.image-ref }}\`"
+            echo "**Signature:** \`${{ inputs.verify-signature }}\`"
+            echo "**Provenance:** \`${{ inputs.verify-provenance }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
