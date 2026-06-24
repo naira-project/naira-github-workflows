@@ -135,9 +135,47 @@ with:
 
 ---
 
+### `reusable-container-build-only.yml`
+
+Builds (but does not push) a multi-arch container image. Use this in PR validation workflows — it only requires `contents: read` so callers need no elevated permissions.
+
+```yaml
+uses: naira-project/shared-workflows/.github/workflows/reusable-container-build-only.yml@main
+with:
+  image-name: "naira-api"            # optional, defaults to repo name
+  dockerfile: "Dockerfile"           # default
+  context: "."                       # default
+  platforms: "linux/amd64,linux/arm64"
+  registry: "ghcr.io"                # default
+  build-args: |
+    VERSION=1.2.3
+    COMMIT=abc1234
+```
+
+No `secrets` block needed — the image is never pushed.
+
+**Outputs:**
+
+| Output | Description |
+|---|---|
+| `image-digest` | Digest of the locally built image |
+| `image-tags` | Comma-separated list of applied tags |
+
+---
+
 ### `reusable-container-build.yml`
 
-Builds and optionally pushes multi-arch container images to `ghcr.io`.
+Builds **and pushes** multi-arch container images to `ghcr.io`, signs them with Cosign (keyless), and attests provenance (SLSA Level 2). Use this in release / on-demand workflows.
+
+Requires the caller to declare elevated permissions:
+
+```yaml
+permissions:
+  packages: write
+  id-token: write
+  attestations: write
+  contents: read
+```
 
 ```yaml
 uses: naira-project/shared-workflows/.github/workflows/reusable-container-build.yml@main
@@ -146,8 +184,8 @@ with:
   dockerfile: "Dockerfile"           # default
   context: "."                       # default
   platforms: "linux/amd64,linux/arm64"
-  push: true                         # false = build-only (for PRs)
   registry: "ghcr.io"                # default
+  sign: true                         # default: Cosign keyless signing
   build-args: |
     VERSION=1.2.3
     COMMIT=abc1234

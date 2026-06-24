@@ -48,12 +48,9 @@ jobs:
 
   container-build:
     name: Container Build
-    uses: naira-project/shared-workflows/.github/workflows/reusable-container-build.yml@main
+    uses: naira-project/shared-workflows/.github/workflows/reusable-container-build-only.yml@main
     with:
-      push: false
       platforms: "linux/amd64,linux/arm64"
-    secrets:
-      registry-password: ${{ secrets.GITHUB_TOKEN }}
 
   all-checks:
     name: All Checks Passed
