@@ -22,10 +22,6 @@ on:
         description: "Comma-separated list of target platforms"
         type: string
         default: "linux/amd64,linux/arm64"
-      push:
-        description: "Push image to registry (false = build-only for PRs)"
-        type: boolean
-        default: true
       registry:
         description: "Container registry hostname"
         type: string
@@ -52,85 +48,14 @@ on:
     outputs:
       image-digest:
         description: "Published image digest (sha256:...)"
-        value: ${{ jobs.build-push.outputs.digest || jobs.build-only.outputs.digest }}
+        value: ${{ jobs.build-push.outputs.digest }}
       image-tags:
         description: "Comma-separated list of applied image tags"
-        value: ${{ jobs.build-push.outputs.tags || jobs.build-only.outputs.tags }}
+        value: ${{ jobs.build-push.outputs.tags }}
 
 jobs:
-  # ── Build-only path (PRs / dry-runs): no elevated permissions needed ───────
-  build-only:
-    name: Build (${{ inputs.platforms }})
-    if: ${{ !inputs.push }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    outputs:
-      digest: ${{ steps.build.outputs.digest }}
-      tags: ${{ steps.meta.outputs.tags }}
-
-    permissions:
-      contents: read
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-
-      - name: Resolve image name
-        id: image
-        run: |
-          NAME="${{ inputs.image-name }}"
-          if [ -z "$NAME" ]; then
-            NAME="${{ inputs.registry }}/$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')"
-          else
-            NAME="${{ inputs.registry }}/$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')/$NAME"
-          fi
-          echo "full=$NAME" >> "$GITHUB_OUTPUT"
-
-      - name: Docker metadata
-        id: meta
-        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9  # v6.1.0
-        with:
-          images: ${{ steps.image.outputs.full }}
-          labels: |
-            org.opencontainers.image.vendor=Naira Project
-            ${{ inputs.image-labels }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=ref,event=branch
-            type=ref,event=pr
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,prefix=sha-,format=short
-
-      - name: Set up QEMU (for cross-arch builds)
-        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3  # v4.1.0
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5  # v4.1.0
-        with:
-          driver-opts: image=moby/buildkit:latest
-
-      - name: Build image (no push)
-        id: build
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7.2.0
-        with:
-          context: ${{ inputs.context }}
-          file: ${{ inputs.dockerfile }}
-          platforms: ${{ inputs.platforms }}
-          push: false
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: ${{ inputs.build-args }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          sbom: true
-          provenance: true
-
-  # ── Publish path: elevated permissions scoped to this job only ─────────────
   build-push:
     name: Build & Push (${{ inputs.platforms }})
-    if: ${{ inputs.push }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
