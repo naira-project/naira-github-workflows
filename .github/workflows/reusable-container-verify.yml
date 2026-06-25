@@ -56,30 +56,39 @@ jobs:
         if: inputs.verify-signature
         run: |
           cosign verify \
-            --certificate-identity-regexp "${{ inputs.certificate-identity-regexp }}" \
-            --certificate-oidc-issuer "${{ inputs.certificate-oidc-issuer }}" \
-            "${{ inputs.image-ref }}"
+            --certificate-identity-regexp "${INPUTS_CERTIFICATE_IDENTITY_REGEXP}" \
+            --certificate-oidc-issuer "${INPUTS_CERTIFICATE_OIDC_ISSUER}" \
+            "${INPUTS_IMAGE_REF}"
+        env:
+          INPUTS_CERTIFICATE_IDENTITY_REGEXP: ${{ inputs.certificate-identity-regexp }}
+          INPUTS_CERTIFICATE_OIDC_ISSUER: ${{ inputs.certificate-oidc-issuer }}
+          INPUTS_IMAGE_REF: ${{ inputs.image-ref }}
 
       - name: Verify image provenance
         if: inputs.verify-provenance
         env:
           GH_TOKEN: ${{ github.token }}
+          INPUTS_SOURCE_REPO: ${{ inputs.source-repo }}
+          INPUTS_IMAGE_REF: ${{ inputs.image-ref }}
+          INPUTS_SIGNER_WORKFLOW: ${{ inputs.signer-workflow }}
+          INPUTS_CERTIFICATE_OIDC_ISSUER: ${{ inputs.certificate-oidc-issuer }}
+          INPUTS_SOURCE_DIGEST: ${{ inputs.source-digest }}
         run: |
-          SOURCE_REPO="${{ inputs.source-repo }}"
+          SOURCE_REPO="${INPUTS_SOURCE_REPO}"
           if [ -z "$SOURCE_REPO" ]; then
             SOURCE_REPO="${{ github.repository }}"
           fi
 
           VERIFY_ARGS=(
-            "oci://${{ inputs.image-ref }}"
+            "oci://${INPUTS_IMAGE_REF}"
             "--repo" "$SOURCE_REPO"
-            "--signer-workflow" "${{ inputs.signer-workflow }}"
-            "--cert-oidc-issuer" "${{ inputs.certificate-oidc-issuer }}"
+            "--signer-workflow" "${INPUTS_SIGNER_WORKFLOW}"
+            "--cert-oidc-issuer" "${INPUTS_CERTIFICATE_OIDC_ISSUER}"
             "--format" "json"
           )
 
-          if [ -n "${{ inputs.source-digest }}" ]; then
-            VERIFY_ARGS+=("--source-digest" "${{ inputs.source-digest }}")
+          if [ -n "${INPUTS_SOURCE_DIGEST}" ]; then
+            VERIFY_ARGS+=("--source-digest" "${INPUTS_SOURCE_DIGEST}")
           fi
 
           gh attestation verify "${VERIFY_ARGS[@]}" \
@@ -89,7 +98,9 @@ jobs:
         run: |
           {
             echo "### Container Verification"
-            echo "**Image:** \`${{ inputs.image-ref }}\`"
+            echo "**Image:** \`${INPUTS_IMAGE_REF}\`"
             echo "**Signature:** \`${{ inputs.verify-signature }}\`"
             echo "**Provenance:** \`${{ inputs.verify-provenance }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          INPUTS_IMAGE_REF: ${{ inputs.image-ref }}

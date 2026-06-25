@@ -55,7 +55,7 @@ on:
         value: ${{ jobs.build-push.outputs.digest }}
       image-tags:
         description: "Comma-separated list of applied image tags"
-        value: ${{ jobs.build-push.outputs.tags || jobs.build-only.outputs.tags }}
+        value: ${{ jobs.build-push.outputs.tags }}
       image-ref:
         description: "Published image reference pinned by digest"
         value: ${{ jobs.build-push.outputs.image-ref }}
@@ -189,12 +189,14 @@ jobs:
       - name: Resolve provenance artifact name
         id: provenance-artifact
         run: |
-          RAW="${{ inputs.image-name }}"
+          RAW="${INPUTS_IMAGE_NAME}"
           if [ -z "$RAW" ]; then
             RAW="$(basename "${{ github.repository }}")"
           fi
           SAFE="$(printf '%s' "$RAW" | tr '/:@' '---' | tr -c 'A-Za-z0-9._-' '-')"
           echo "name=provenance-$SAFE" >> "$GITHUB_OUTPUT"
+        env:
+          INPUTS_IMAGE_NAME: ${{ inputs.image-name }}
 
       - name: Upload provenance bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
