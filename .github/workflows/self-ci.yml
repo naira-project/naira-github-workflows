@@ -16,14 +16,20 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions: {}
+
 jobs:
   # ── Validate YAML syntax of all workflow files ────────────────────────────
   yaml-lint:
     name: YAML Lint
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Install yamllint
         run: pip install yamllint --quiet --break-system-packages
@@ -41,8 +47,12 @@ jobs:
     name: Action Lint
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Install actionlint
         run: |
@@ -52,15 +62,45 @@ jobs:
           sudo mv actionlint /usr/local/bin/
 
       - name: Run actionlint
-        run: actionlint .github/workflows/*.yml
+        run: actionlint -color .github/workflows/*.yml
+
+  # ── Security linter for Actions ───────────────────────────────────────────
+  zizmor:
+    name: zizmor (Actions SAST)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+
+      # Pinned zizmor release. --offline keeps the audit hermetic (no network
+      # calls about the actions it inspects); --min-severity=low surfaces
+      # everything so nothing slips through under the gate.
+      - name: Run zizmor
+        run: |
+          set -euo pipefail
+          pip install zizmor==1.25.2
+          zizmor --offline --min-severity=low .github/workflows/
 
   # ── REUSE compliance on this repo ─────────────────────────────────────────
   reuse:
     name: REUSE Compliance
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
       - uses: fsfe/reuse-action@676e2d560c9a403aa252096d99fcab3e1132b0f5 # v6.0.0
 
   # ── DCO check on this repo ────────────────────────────────────────────────
@@ -68,10 +108,13 @@ jobs:
     name: DCO Sign-off
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: christophebedard/dco-check@ec8bfc43106afe98b323ace9133650df10497e12 # 0.5.1
         with:
           args: >-
@@ -84,7 +127,7 @@ jobs:
   release:
     name: Release
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [yaml-lint, action-lint, reuse, dco]
+    needs: [yaml-lint, action-lint, zizmor, reuse, dco]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -103,16 +146,18 @@ jobs:
   # rules. Release failures are visible in the Actions UI but do not block merges.
   all-checks:
     name: All Checks Passed
-    needs: [yaml-lint, action-lint, reuse, dco]
+    needs: [yaml-lint, action-lint, zizmor, reuse, dco]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions: {}
     steps:
       - name: Check results
         run: |
           for r in \
             "${{ needs.yaml-lint.result }}" \
             "${{ needs.action-lint.result }}" \
+            "${{ needs.zizmor.result }}" \
             "${{ needs.reuse.result }}" \
             "${{ needs.dco.result }}"; do
             if [[ "$r" == "failure" || "$r" == "cancelled" ]]; then

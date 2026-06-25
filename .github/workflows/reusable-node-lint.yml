@@ -39,6 +39,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       # Resolve the correct lockfile for the chosen package manager.
       # Each package manager uses a different lockfile name; using the wrong
@@ -47,11 +49,14 @@ jobs:
         id: lockfile
         shell: bash
         run: |
-          case "${{ inputs.package-manager }}" in
-            yarn) echo "path=${{ inputs.working-directory }}/yarn.lock" >> "$GITHUB_OUTPUT" ;;
-            pnpm) echo "path=${{ inputs.working-directory }}/pnpm-lock.yaml" >> "$GITHUB_OUTPUT" ;;
-            *)    echo "path=${{ inputs.working-directory }}/package-lock.json" >> "$GITHUB_OUTPUT" ;;
+          case "${INPUTS_PACKAGE_MANAGER}" in
+            yarn) echo "path=${INPUTS_WORKING_DIRECTORY}/yarn.lock" >> "$GITHUB_OUTPUT" ;;
+            pnpm) echo "path=${INPUTS_WORKING_DIRECTORY}/pnpm-lock.yaml" >> "$GITHUB_OUTPUT" ;;
+            *)    echo "path=${INPUTS_WORKING_DIRECTORY}/package-lock.json" >> "$GITHUB_OUTPUT" ;;
           esac
+        env:
+          INPUTS_PACKAGE_MANAGER: ${{ inputs.package-manager }}
+          INPUTS_WORKING_DIRECTORY: ${{ inputs.working-directory }}
 
       # ── pnpm must be on PATH before actions/setup-node when cache: pnpm ───
       # setup-node needs pnpm installed first to locate the lockfile for caching.
@@ -83,18 +88,28 @@ jobs:
 
       # ── Lint ───────────────────────────────────────────────────────────────
       - name: Run ESLint
-        run: ${{ inputs.package-manager }} run ${{ inputs.lint-script }}
+        run: |
+          "${INPUTS_PACKAGE_MANAGER}" run "${INPUTS_LINT_SCRIPT}"
+        env:
+          INPUTS_PACKAGE_MANAGER: ${{ inputs.package-manager }}
+          INPUTS_LINT_SCRIPT: ${{ inputs.lint-script }}
 
       - name: Run TypeScript typecheck
         if: inputs.typecheck-script != ''
-        run: ${{ inputs.package-manager }} run ${{ inputs.typecheck-script }}
+        run: |
+          "${INPUTS_PACKAGE_MANAGER}" run "${INPUTS_TYPECHECK_SCRIPT}"
+        env:
+          INPUTS_PACKAGE_MANAGER: ${{ inputs.package-manager }}
+          INPUTS_TYPECHECK_SCRIPT: ${{ inputs.typecheck-script }}
 
       # ── Formatting (Prettier) ─────────────────────────────────────────────
       - name: Check Prettier formatting
         run: |
           if [ -f ".prettierrc" ] || [ -f ".prettierrc.json" ] || [ -f "prettier.config.js" ]; then
-            ${{ inputs.package-manager }} run format:check 2>/dev/null || \
+            "${INPUTS_PACKAGE_MANAGER}" run format:check 2>/dev/null || \
               echo "::warning::No format:check script found, skipping Prettier check."
           else
             echo "No Prettier config found, skipping."
           fi
+        env:
+          INPUTS_PACKAGE_MANAGER: ${{ inputs.package-manager }}

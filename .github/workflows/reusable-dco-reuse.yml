@@ -32,6 +32,7 @@ jobs:
         with:
           # Full history needed to inspect all commits in the PR
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Check DCO sign-off
         uses: christophebedard/dco-check@ec8bfc43106afe98b323ace9133650df10497e12 # 0.5.1
@@ -47,6 +48,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: REUSE compliance check
         uses: fsfe/reuse-action@676e2d560c9a403aa252096d99fcab3e1132b0f5 # v6.0.0
@@ -56,8 +59,10 @@ jobs:
       - name: Generate REUSE SBOM (SPDX)
         # Produces a machine-readable bill of materials — useful for audits
         run: |
-          pip install reuse==${{ inputs.reuse-version }} --quiet --break-system-packages
+          pip install "reuse==${INPUTS_REUSE_VERSION}" --quiet --break-system-packages
           reuse spdx --output reuse-sbom.spdx
+        env:
+          INPUTS_REUSE_VERSION: ${{ inputs.reuse-version }}
 
       - name: Upload REUSE SBOM
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
