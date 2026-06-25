@@ -22,10 +22,6 @@ on:
         description: "Comma-separated list of target platforms"
         type: string
         default: "linux/amd64,linux/arm64"
-      push:
-        description: "Push image to registry (false = build-only for PRs)"
-        type: boolean
-        default: true
       registry:
         description: "Container registry hostname"
         type: string
@@ -52,10 +48,10 @@ on:
     outputs:
       image-digest:
         description: "Published image digest (sha256:...)"
-        value: ${{ jobs.build-push.outputs.digest || jobs.build-only.outputs.digest }}
+        value: ${{ jobs.build-push.outputs.digest }}
       image-tags:
         description: "Comma-separated list of applied image tags"
-        value: ${{ jobs.build-push.outputs.tags || jobs.build-only.outputs.tags }}
+        value: ${{ jobs.build-push.outputs.tags }}
 
 jobs:
   # ── Build-only path (PRs / dry-runs): no elevated permissions needed ───────
@@ -135,7 +131,6 @@ jobs:
   # ── Publish path: elevated permissions scoped to this job only ─────────────
   build-push:
     name: Build & Push (${{ inputs.platforms }})
-    if: ${{ inputs.push }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:

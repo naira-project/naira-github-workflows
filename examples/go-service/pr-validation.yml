@@ -64,13 +64,10 @@ jobs:
   # ── 5. Container image build (build-only on PRs, no push) ─────────────────
   container-build:
     name: Container Build
-    uses: naira-project/shared-workflows/.github/workflows/reusable-container-build.yml@main
+    uses: naira-project/shared-workflows/.github/workflows/reusable-container-build-only.yml@main
     with:
-      push: false            # Only push on merges to main (see release.yml)
       platforms: "linux/amd64,linux/arm64"
       dockerfile: "Dockerfile"
-    secrets:
-      registry-password: ${{ secrets.GITHUB_TOKEN }}
 
   # ── Gate: all checks must pass ─────────────────────────────────────────────
   # Add this job as the single required status check in branch protection.
