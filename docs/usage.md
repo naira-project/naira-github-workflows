@@ -199,6 +199,8 @@ secrets:
 |---|---|
 | `image-digest` | `sha256:...` digest of the pushed image |
 | `image-tags` | Comma-separated list of applied tags |
+| `image-ref` | Digest-pinned image reference, e.g. `ghcr.io/org/app@sha256:...` |
+| `attestation-url` | GitHub attestation summary URL for the image provenance |
 
 Images are automatically tagged with:
 - `latest` (on default branch)
@@ -206,6 +208,81 @@ Images are automatically tagged with:
 - Branch name on branch pushes
 - `pr-42` on pull requests
 - `sha-abc1234` always (immutable)
+
+When `push: true`, the workflow signs the image with keyless Cosign, generates
+SLSA build provenance, pushes the attestation to the image registry, stores it
+in GitHub's attestation store, and uploads the attestation bundle as a workflow
+artifact named `provenance-<image-name>`.
+
+The caller must grant these permissions for published images:
+
+```yaml
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+```
+
+---
+
+### `reusable-container-verify.yml`
+
+Verifies a published image signature and its SLSA provenance attestation.
+
+```yaml
+uses: naira-project/naira-github-workflows/.github/workflows/reusable-container-verify.yml@main
+with:
+  image-ref: "ghcr.io/org/app@sha256:..."
+  source-digest: ${{ github.sha }}
+```
+
+Set `verify-signature: false` or `verify-provenance: false` only when debugging
+a partial release. Release gates should leave both enabled.
+
+---
+
+### `reusable-artifact-provenance.yml`
+
+Generates provenance for non-container release artifacts that were previously
+uploaded with `actions/upload-artifact`. It downloads the artifact, computes
+`SHA256SUMS`, generates a SLSA provenance attestation over those checksums, and
+uploads a sibling artifact containing:
+
+- `SHA256SUMS`
+- `build-inputs.json`
+- the signed attestation bundle
+
+```yaml
+artifact-provenance:
+  name: Generate Artifact Provenance
+  needs: build-release-archive
+  uses: naira-project/naira-github-workflows/.github/workflows/reusable-artifact-provenance.yml@main
+  with:
+    artifact-name: "release-archive"
+    subject-path: "."
+    build-inputs: |
+      version=${{ needs.release.outputs.version }}
+      commit=${{ github.sha }}
+```
+
+The caller must grant:
+
+```yaml
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+```
+
+Operators can verify a downloaded file with:
+
+```bash
+gh attestation verify ./dist/my-archive.tar.gz \
+  --repo naira-project/my-repo \
+  --signer-workflow naira-project/naira-github-workflows/.github/workflows/reusable-artifact-provenance.yml \
+  --source-digest <release-commit-sha>
+```
 
 ---
 
