@@ -29,7 +29,6 @@ jobs:
     if: needs.release.outputs.release-created == 'true'
     uses: naira-project/shared-workflows/.github/workflows/reusable-container-build.yml@main
     with:
-      push: true
       platforms: "linux/amd64,linux/arm64"
       image-name: "my-go-service"          # ← change to your service name
       build-args: |

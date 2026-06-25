@@ -45,10 +45,11 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           # chart-releaser needs full history for gh-pages
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Helm
         uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
@@ -61,8 +62,8 @@ jobs:
       - name: Detect changed charts
         id: changed
         run: |
-          TARGET="${{ github.event.repository.default_branch || 'main' }}"
-          CHANGED=$(ct list-changed --chart-dirs "${{ inputs.charts-directory }}" --target-branch "$TARGET")
+          TARGET="${DEFAULT_BRANCH:-main}"
+          CHANGED=$(ct list-changed --chart-dirs "${INPUTS_CHARTS_DIRECTORY}" --target-branch "$TARGET")
           {
             echo "charts<<EOF"
             echo "$CHANGED"
@@ -73,18 +74,24 @@ jobs:
           else
             echo "has-changes=false" >> "$GITHUB_OUTPUT"
           fi
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          INPUTS_CHARTS_DIRECTORY: ${{ inputs.charts-directory }}
 
       - name: Lint changed charts
         if: steps.changed.outputs.has-changes == 'true'
         run: |
           ct lint \
-            --chart-dirs ${{ inputs.charts-directory }} \
-            --target-branch "${{ github.event.repository.default_branch || 'main' }}" \
+            --chart-dirs "${INPUTS_CHARTS_DIRECTORY}" \
+            --target-branch "${DEFAULT_BRANCH:-main}" \
             --validate-maintainers=false
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          INPUTS_CHARTS_DIRECTORY: ${{ inputs.charts-directory }}
 
       - name: Validate chart schemas
         run: |
-          for chart in "${{ inputs.charts-directory }}"/*/; do
+          for chart in "${INPUTS_CHARTS_DIRECTORY}"/*/; do
             if [ -f "$chart/values.schema.json" ]; then
               echo "✓ Schema found for $chart"
               helm lint "$chart" --strict
@@ -92,6 +99,8 @@ jobs:
               echo "::warning::No values.schema.json in $chart — consider adding one."
             fi
           done
+        env:
+          INPUTS_CHARTS_DIRECTORY: ${{ inputs.charts-directory }}
 
   helm-publish-oci:
     name: Helm Publish (OCI)
@@ -106,7 +115,9 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Set up Helm
         uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
@@ -115,16 +126,19 @@ jobs:
 
       - name: Log in to OCI registry
         run: |
-          echo "${{ secrets.registry-password }}" | \
-          helm registry login ${{ inputs.registry }} \
-            --username ${{ github.actor }} \
+          echo "${REGISTRY_PASSWORD}" | \
+          helm registry login "${INPUTS_REGISTRY}" \
+            --username "${GITHUB_ACTOR}" \
             --password-stdin
+        env:
+          INPUTS_REGISTRY: ${{ inputs.registry }}
+          REGISTRY_PASSWORD: ${{ secrets.registry-password }}
 
       - name: Package and push all charts
         run: |
-          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          OWNER=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
           mkdir -p /tmp/helm-packages
-          for chart in "${{ inputs.charts-directory }}"/*/; do
+          for chart in "${INPUTS_CHARTS_DIRECTORY}"/*/; do
             CHART_NAME=$(basename "$chart")
             echo "📦 Packaging $CHART_NAME..."
             helm package "$chart" --destination /tmp/helm-packages/
@@ -134,19 +148,25 @@ jobs:
               echo "::error::Failed to find packaged chart for $CHART_NAME"
               exit 1
             fi
-            echo "🚀 Pushing $PACKAGE to oci://${{ inputs.registry }}/${OWNER}/charts"
-            helm push "$PACKAGE" "oci://${{ inputs.registry }}/${OWNER}/charts"
+            echo "🚀 Pushing $PACKAGE to oci://${INPUTS_REGISTRY}/${OWNER}/charts"
+            helm push "$PACKAGE" "oci://${INPUTS_REGISTRY}/${OWNER}/charts"
           done
+        env:
+          INPUTS_CHARTS_DIRECTORY: ${{ inputs.charts-directory }}
+          INPUTS_REGISTRY: ${{ inputs.registry }}
 
       - name: Write job summary
         run: |
           echo "### ⎈ Helm Charts Published" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Registry:** \`oci://${{ inputs.registry }}\`" >> "$GITHUB_STEP_SUMMARY"
-          for chart in "${{ inputs.charts-directory }}"/*/; do
+          echo "**Registry:** \`oci://${INPUTS_REGISTRY}\`" >> "$GITHUB_STEP_SUMMARY"
+          for chart in "${INPUTS_CHARTS_DIRECTORY}"/*/; do
             CHART_NAME=$(basename "$chart")
             VERSION=$(helm show chart "$chart" | grep '^version:' | awk '{print $2}')
             echo "- \`${CHART_NAME}:${VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
           done
+        env:
+          INPUTS_REGISTRY: ${{ inputs.registry }}
+          INPUTS_CHARTS_DIRECTORY: ${{ inputs.charts-directory }}
 
   helm-publish-ghpages:
     name: Helm Publish (GitHub Pages)
@@ -160,9 +180,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Configure Git
         run: |

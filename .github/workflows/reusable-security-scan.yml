@@ -52,23 +52,27 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       # Trivy --severity takes an explicit comma-separated list, not a threshold.
       # Map the input to include all severities at or above the requested minimum.
       - name: Compute severity list
         id: severity
         run: |
-          case "${{ inputs.severity }}" in
+          case "${INPUTS_SEVERITY}" in
             LOW)      echo "list=LOW,MEDIUM,HIGH,CRITICAL" >> "$GITHUB_OUTPUT" ;;
             MEDIUM)   echo "list=MEDIUM,HIGH,CRITICAL" >> "$GITHUB_OUTPUT" ;;
             HIGH)     echo "list=HIGH,CRITICAL" >> "$GITHUB_OUTPUT" ;;
             CRITICAL) echo "list=CRITICAL" >> "$GITHUB_OUTPUT" ;;
             *)        echo "list=HIGH,CRITICAL" >> "$GITHUB_OUTPUT" ;;
           esac
+        env:
+          INPUTS_SEVERITY: ${{ inputs.severity }}
 
       - name: Run Trivy filesystem scan
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
           scan-type: "fs"
           scan-ref: "."
@@ -103,16 +107,18 @@ jobs:
       - name: Compute severity list
         id: severity
         run: |
-          case "${{ inputs.severity }}" in
+          case "${INPUTS_SEVERITY}" in
             LOW)      echo "list=LOW,MEDIUM,HIGH,CRITICAL" >> "$GITHUB_OUTPUT" ;;
             MEDIUM)   echo "list=MEDIUM,HIGH,CRITICAL" >> "$GITHUB_OUTPUT" ;;
             HIGH)     echo "list=HIGH,CRITICAL" >> "$GITHUB_OUTPUT" ;;
             CRITICAL) echo "list=CRITICAL" >> "$GITHUB_OUTPUT" ;;
             *)        echo "list=HIGH,CRITICAL" >> "$GITHUB_OUTPUT" ;;
           esac
+        env:
+          INPUTS_SEVERITY: ${{ inputs.severity }}
 
       - name: Run Trivy image scan
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
           image-ref: ${{ inputs.image-ref }}
           format: "sarif"
@@ -141,7 +147,9 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
