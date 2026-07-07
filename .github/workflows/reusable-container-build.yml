@@ -177,14 +177,13 @@ jobs:
           STEPS_IMAGE_OUTPUTS_FULL: ${{ steps.image.outputs.full }}
           STEPS_PUSH_OUTPUTS_DIGEST: ${{ steps.push.outputs.digest }}
 
-      # ── Attestation (SLSA Level 2) ─────────────────────────────────────────
-      - name: Attest image provenance
-        id: attest
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32  # v4.1.0
-        with:
-          subject-name: ${{ steps.image.outputs.full }}
-          subject-digest: ${{ steps.push.outputs.digest }}
-          push-to-registry: true
+      # # ── Attestation (SLSA Level 2) ─────────────────────────────────────────
+      # - name: Attest image provenance
+      #   uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+      #   with:
+      #     subject-name: ${{ steps.image.outputs.full }}
+      #     subject-digest: ${{ steps.push.outputs.digest }}
+      #     push-to-registry: true
 
       - name: Resolve provenance artifact name
         id: provenance-artifact
