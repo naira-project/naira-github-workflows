@@ -95,7 +95,7 @@ jobs:
           INPUTS_IMAGE_NAME: ${{ inputs.image-name }}
           INPUTS_REGISTRY: ${{ inputs.registry }}
 
-      # ── Generate OCI-compliant tags & labels ───────────────────────────────    
+      # ── Generate OCI-compliant tags & labels ───────────────────────────────
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
@@ -172,13 +172,13 @@ jobs:
           STEPS_IMAGE_OUTPUTS_FULL: ${{ steps.image.outputs.full }}
           STEPS_PUSH_OUTPUTS_DIGEST: ${{ steps.push.outputs.digest }}
 
-      # # ── Attestation (SLSA Level 2) ─────────────────────────────────────────
-      # - name: Attest image provenance
-      #   uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-      #   with:
-      #     subject-name: ${{ steps.image.outputs.full }}
-      #     subject-digest: ${{ steps.push.outputs.digest }}
-      #     push-to-registry: true
+      # ── Attestation (SLSA Level 2) ─────────────────────────────────────────
+      - name: Attest image provenance
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-name: ${{ steps.image.outputs.full }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
 
       # ── Summary ───────────────────────────────────────────────────────────
       - name: Write job summary
