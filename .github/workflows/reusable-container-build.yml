@@ -66,6 +66,9 @@ on:
       attestation-url:
         description: "GitHub attestation summary URL for the pushed image"
         value: ${{ jobs.build-push.outputs.attestation-url }}
+      provenance-artifact-name:
+        description: "Name of the uploaded provenance bundle artifact"
+        value: ${{ jobs.build-push.outputs.provenance-artifact-name }}
 
 jobs:
   build-push:
@@ -77,6 +80,7 @@ jobs:
       tags: ${{ steps.meta.outputs.tags }}
       image-ref: ${{ steps.image.outputs.full }}@${{ steps.push.outputs.digest }}
       attestation-url: ${{ steps.attest.outputs.attestation-url }}
+      provenance-artifact-name: ${{ steps.provenance-artifact.outputs.name }}
 
     permissions:
       contents: read
