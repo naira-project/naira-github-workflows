@@ -42,6 +42,10 @@ on:
         description: "Retention period for uploaded provenance bundles"
         type: number
         default: 90
+      image-tag:
+        description: "Explicit tag to apply (overrides branch naming for releases)"
+        type: string
+        default: ""
     secrets:
       registry-username:
         description: "Registry username (defaults to github.actor if not set)"
@@ -104,7 +108,7 @@ jobs:
           INPUTS_IMAGE_NAME: ${{ inputs.image-name }}
           INPUTS_REGISTRY: ${{ inputs.registry }}
 
-      # ── Generate OCI-compliant tags & labels ───────────────────────────────
+      # ── Generate OCI-compliant tags & labels ───────────────────────────────    
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
@@ -114,6 +118,9 @@ jobs:
             org.opencontainers.image.vendor=Naira Project
             ${{ inputs.image-labels }}
           tags: |
+            # Inject the explicit release tag if provided by the release workflow
+            type=raw,value=${{ inputs.image-tag }},enable=${{ inputs.image-tag != '' }}
+            # Fallback standard tags
             # Tag with full semver on version tags (v1.2.3 → 1.2.3, 1.2, 1)
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
