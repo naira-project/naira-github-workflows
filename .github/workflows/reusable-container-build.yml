@@ -56,6 +56,9 @@ on:
       image-tags:
         description: "Comma-separated list of applied image tags"
         value: ${{ jobs.build-push.outputs.tags }}
+      image-ref:
+        description: "Published image reference pinned by digest"
+        value: ${{ jobs.build-push.outputs.image-ref }}
 
 jobs:
   build-push:
@@ -65,6 +68,7 @@ jobs:
     outputs:
       digest: ${{ steps.push.outputs.digest }}
       tags: ${{ steps.meta.outputs.tags }}
+      image-ref: ${{ steps.image.outputs.full }}@${{ steps.push.outputs.digest }}
 
     permissions:
       contents: read
@@ -72,6 +76,7 @@ jobs:
       # Required for Cosign keyless signing and SLSA provenance attestation
       id-token: write
       attestations: write
+      artifact-metadata: write
 
     steps:
       - name: Checkout code
