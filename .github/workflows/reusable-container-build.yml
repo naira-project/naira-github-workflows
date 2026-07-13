@@ -80,6 +80,7 @@ jobs:
       # Required for Cosign keyless signing and SLSA provenance attestation
       id-token: write
       attestations: write
+      artifact-metadata: write
 
     steps:
       - name: Checkout code
