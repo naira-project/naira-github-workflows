@@ -38,6 +38,10 @@ on:
         description: "Sign the published image with Cosign (keyless / GitHub OIDC)"
         type: boolean
         default: true
+      provenance-retention-days:
+        description: "Retention period for uploaded provenance bundles"
+        type: number
+        default: 90
       image-tag:
         description: "Explicit tag to apply (overrides branch naming for releases)"
         type: string
@@ -56,6 +60,15 @@ on:
       image-tags:
         description: "Comma-separated list of applied image tags"
         value: ${{ jobs.build-push.outputs.tags }}
+      image-ref:
+        description: "Published image reference pinned by digest"
+        value: ${{ jobs.build-push.outputs.image-ref }}
+      attestation-url:
+        description: "GitHub attestation summary URL for the pushed image"
+        value: ${{ jobs.build-push.outputs.attestation-url }}
+      provenance-artifact-name:
+        description: "Name of the uploaded provenance bundle artifact"
+        value: ${{ jobs.build-push.outputs.provenance-artifact-name }}
 
 jobs:
   build-push:
@@ -65,6 +78,9 @@ jobs:
     outputs:
       digest: ${{ steps.push.outputs.digest }}
       tags: ${{ steps.meta.outputs.tags }}
+      image-ref: ${{ steps.image.outputs.full }}@${{ steps.push.outputs.digest }}
+      attestation-url: ${{ steps.attest.outputs.attestation-url }}
+      provenance-artifact-name: ${{ steps.provenance-artifact.outputs.name }}
 
     permissions:
       contents: read
@@ -72,6 +88,7 @@ jobs:
       # Required for Cosign keyless signing and SLSA provenance attestation
       id-token: write
       attestations: write
+      artifact-metadata: write
 
     steps:
       - name: Checkout code
@@ -95,7 +112,7 @@ jobs:
           INPUTS_IMAGE_NAME: ${{ inputs.image-name }}
           INPUTS_REGISTRY: ${{ inputs.registry }}
 
-      # ── Generate OCI-compliant tags & labels ───────────────────────────────    
+      # ── Generate OCI-compliant tags & labels ───────────────────────────────
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
@@ -172,13 +189,34 @@ jobs:
           STEPS_IMAGE_OUTPUTS_FULL: ${{ steps.image.outputs.full }}
           STEPS_PUSH_OUTPUTS_DIGEST: ${{ steps.push.outputs.digest }}
 
-      # # ── Attestation (SLSA Level 2) ─────────────────────────────────────────
-      # - name: Attest image provenance
-      #   uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-      #   with:
-      #     subject-name: ${{ steps.image.outputs.full }}
-      #     subject-digest: ${{ steps.push.outputs.digest }}
-      #     push-to-registry: true
+      # ── Attestation (SLSA Level 2) ─────────────────────────────────────────
+      - name: Attest image provenance
+        id: attest
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-name: ${{ steps.image.outputs.full }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Resolve provenance artifact name
+        id: provenance-artifact
+        run: |
+          RAW="${INPUTS_IMAGE_NAME}"
+          if [ -z "$RAW" ]; then
+            RAW="$(basename "${{ github.repository }}")"
+          fi
+          SAFE="$(printf '%s' "$RAW" | tr '/:@' '---' | tr -c 'A-Za-z0-9._-' '-')"
+          echo "name=provenance-$SAFE" >> "$GITHUB_OUTPUT"
+        env:
+          INPUTS_IMAGE_NAME: ${{ inputs.image-name }}
+
+      - name: Upload provenance bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.provenance-artifact.outputs.name }}
+          path: ${{ steps.attest.outputs.bundle-path }}
+          retention-days: ${{ inputs.provenance-retention-days }}
+          if-no-files-found: error
 
       # ── Summary ───────────────────────────────────────────────────────────
       - name: Write job summary
@@ -186,7 +224,10 @@ jobs:
           {
             echo "### 🐳 Image Published"
             echo "**Registry:** \`${INPUTS_REGISTRY}\`"
+            echo "**Image Ref:** \`${{ steps.image.outputs.full }}@${{ steps.push.outputs.digest }}\`"
             echo "**Digest:** \`${STEPS_PUSH_OUTPUTS_DIGEST}\`"
+            echo "**Provenance:** ${{ steps.attest.outputs.attestation-url }}"
+            echo "**Provenance Bundle Artifact:** \`${{ steps.provenance-artifact.outputs.name }}\`"
             echo "**Tags:**"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "${STEPS_META_OUTPUTS_TAGS}" | tr ',' '\n' | while read -r tag; do
