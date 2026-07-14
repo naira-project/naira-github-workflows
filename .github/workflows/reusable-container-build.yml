@@ -52,6 +52,9 @@ on:
       image-tags:
         description: "Comma-separated list of applied image tags"
         value: ${{ jobs.build-push.outputs.tags }}
+      image-name:
+        description: "Full image name without tag (e.g. ghcr.io/org/naira-catalog)"
+        value: ${{ jobs.build-push.outputs.name }}
 
 jobs:
   build-push:
@@ -61,6 +64,7 @@ jobs:
     outputs:
       digest: ${{ steps.push.outputs.digest }}
       tags: ${{ steps.meta.outputs.tags }}
+      name: ${{ steps.image.outputs.full }}
 
     permissions:
       contents: read

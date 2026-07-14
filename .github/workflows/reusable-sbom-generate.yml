@@ -1,0 +1,115 @@
+# SPDX-FileCopyrightText: 2026 Naira Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+name: Reusable · SBOM Generate & Attach
+
+on:
+  workflow_call:
+    inputs:
+      image-name:
+        description: "Full registry image name without tag (e.g. ghcr.io/org/naira-catalog)"
+        type: string
+        required: true
+      image-digest:
+        description: "Image digest (sha256:...) from the container build job"
+        type: string
+        required: true
+      release-tag:
+        description: "GitHub Release tag to attach SBOMs to (e.g. v0.14.0). Omit for RC builds."
+        type: string
+        default: ""
+    secrets:
+      registry-password:
+        description: "Registry token for pulling the image (GITHUB_TOKEN)"
+        required: true
+
+jobs:
+  generate:
+    name: Generate & Attach SBOMs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    permissions:
+      contents: write      # gh release upload
+      packages: write      # pull image from ghcr.io
+      id-token: write      # cosign keyless attestation
+
+    steps:
+      - name: Log in to ghcr.io
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee  # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.registry-password }}
+
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Generate SPDX SBOM
+        run: |
+          syft "${{ inputs.image-name }}@${{ inputs.image-digest }}" \
+            -o spdx-json=sbom.spdx.json
+
+      - name: Generate CycloneDX SBOM
+        run: |
+          syft "${{ inputs.image-name }}@${{ inputs.image-digest }}" \
+            -o cyclonedx-json=sbom.cyclonedx.json
+
+      - name: Verify SBOM parseability
+        run: |
+          SPDX_COUNT=$(jq '.packages | length' sbom.spdx.json)
+          CDX_COUNT=$(jq '.components | length' sbom.cyclonedx.json)
+          echo "SPDX packages: $SPDX_COUNT"
+          echo "CycloneDX components: $CDX_COUNT"
+          if [ "$SPDX_COUNT" -eq 0 ]; then
+            echo "::error::SPDX SBOM contains 0 packages"
+            exit 1
+          fi
+          if [ "$CDX_COUNT" -eq 0 ]; then
+            echo "::error::CycloneDX SBOM contains 0 components"
+            exit 1
+          fi
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
+
+      - name: Attest SPDX SBOM
+        run: |
+          cosign attest --yes \
+            --type spdxjson \
+            --predicate sbom.spdx.json \
+            "${{ inputs.image-name }}@${{ inputs.image-digest }}"
+
+      - name: Attest CycloneDX SBOM
+        run: |
+          cosign attest --yes \
+            --type cyclonedx \
+            --predicate sbom.cyclonedx.json \
+            "${{ inputs.image-name }}@${{ inputs.image-digest }}"
+
+      - name: Upload SBOMs to GitHub Release
+        if: inputs.release-tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.registry-password }}
+        run: |
+          gh release upload "${{ inputs.release-tag }}" \
+            sbom.spdx.json \
+            sbom.cyclonedx.json \
+            --repo "${{ github.repository }}" \
+            --clobber
+
+      - name: Write job summary
+        run: |
+          IMAGE_REF="${{ inputs.image-name }}@${{ inputs.image-digest }}"
+          {
+            echo "### 📦 SBOMs Generated"
+            echo "**Image:** \`${IMAGE_REF}\`"
+            echo "| Format | File | Packages |"
+            echo "|--------|------|---------|"
+            echo "| SPDX | \`sbom.spdx.json\` | $(jq '.packages | length' sbom.spdx.json) |"
+            echo "| CycloneDX | \`sbom.cyclonedx.json\` | $(jq '.components | length' sbom.cyclonedx.json) |"
+            if [ -n "${{ inputs.release-tag }}" ]; then
+              echo ""
+              echo "Attached to release **${{ inputs.release-tag }}**"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
