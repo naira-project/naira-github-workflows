@@ -92,7 +92,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.registry-password }}
         run: |
-          gh release upload "${{ inputs.release-tag }}" \
+          TAG="${{ inputs.release-tag }}"
+          # RC builds skip the GitHub Release (skip-github-release), so there's nothing to attach.
+          if ! gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "::notice::No GitHub Release for $TAG — skipping SBOM upload (SBOMs still attested to the image)."
+            exit 0
+          fi
+          gh release upload "$TAG" \
             sbom.spdx.json \
             sbom.cyclonedx.json \
             --repo "${{ github.repository }}" \
