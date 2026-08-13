@@ -57,17 +57,22 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Resolve image name
         id: image
         run: |
-          NAME="${{ inputs.image-name }}"
+          NAME="${INPUTS_IMAGE_NAME}"
           if [ -z "$NAME" ]; then
-            NAME="${{ inputs.registry }}/$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')"
+            NAME="${INPUTS_REGISTRY}/$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')"
           else
-            NAME="${{ inputs.registry }}/$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')/$NAME"
+            NAME="${INPUTS_REGISTRY}/$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')/$NAME"
           fi
           echo "full=$NAME" >> "$GITHUB_OUTPUT"
+        env:
+          INPUTS_IMAGE_NAME: ${{ inputs.image-name }}
+          INPUTS_REGISTRY: ${{ inputs.registry }}
 
       - name: Docker metadata
         id: meta

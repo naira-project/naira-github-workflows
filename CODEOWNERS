@@ -3,5 +3,5 @@
 #
 # All changes to shared workflows require review from the platform team.
 
-* @naira-project/dev @naira-project/maintainer
+* @naira-project/maintainer
 /.github/* @naira-project/auto

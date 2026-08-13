@@ -1,0 +1,170 @@
+# SPDX-FileCopyrightText: 2026 Naira Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+name: Reusable · Artifact Provenance
+
+on:
+  workflow_call:
+    inputs:
+      artifact-name:
+        description: "Name of the GitHub Actions artifact containing release files"
+        type: string
+        required: true
+      artifact-path:
+        description: "Path where the artifact is downloaded before hashing"
+        type: string
+        default: "release-artifacts"
+      subject-path:
+        description: "File, directory, or glob inside artifact-path to attest"
+        type: string
+        default: "."
+      build-inputs:
+        description: "Optional newline-separated build inputs to record next to the attestation"
+        type: string
+        default: ""
+      provenance-artifact-name:
+        description: "Name of the uploaded artifact containing checksums and attestation bundle"
+        type: string
+        default: ""
+      retention-days:
+        description: "Retention period for uploaded provenance files"
+        type: number
+        default: 90
+    outputs:
+      checksums-path:
+        description: "Path to the generated SHA256 checksums file"
+        value: ${{ jobs.provenance.outputs.checksums-path }}
+      attestation-url:
+        description: "GitHub attestation summary URL"
+        value: ${{ jobs.provenance.outputs.attestation-url }}
+      provenance-artifact-name:
+        description: "Uploaded provenance artifact name"
+        value: ${{ jobs.provenance.outputs.provenance-artifact-name }}
+
+jobs:
+  provenance:
+    name: Generate Artifact Provenance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      checksums-path: ${{ steps.paths.outputs.checksums }}
+      attestation-url: ${{ steps.attest.outputs.attestation-url }}
+      provenance-artifact-name: ${{ steps.paths.outputs.provenance-artifact-name }}
+
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Download release artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ inputs.artifact-path }}
+
+      - name: Resolve provenance paths
+        id: paths
+        run: |
+          PROVENANCE_NAME="${INPUTS_PROVENANCE_ARTIFACT_NAME}"
+          if [ -z "$PROVENANCE_NAME" ]; then
+            PROVENANCE_NAME="${INPUTS_ARTIFACT_NAME}-provenance"
+          fi
+          mkdir -p provenance
+          {
+            echo "checksums=provenance/SHA256SUMS"
+            echo "metadata=provenance/build-inputs.json"
+            echo "provenance-artifact-name=$PROVENANCE_NAME"
+          } >> "$GITHUB_OUTPUT"
+        env:
+          INPUTS_PROVENANCE_ARTIFACT_NAME: ${{ inputs.provenance-artifact-name }}
+          INPUTS_ARTIFACT_NAME: ${{ inputs.artifact-name }}
+
+      - name: Generate artifact checksums
+        working-directory: ${{ inputs.artifact-path }}
+        run: |
+          SUBJECT="${INPUTS_SUBJECT_PATH}"
+          CHECKSUMS="${{ github.workspace }}/${{ steps.paths.outputs.checksums }}"
+          if [ "$SUBJECT" = "." ]; then
+            find . -type f -print0 | sort -z | xargs -0 sha256sum > "$CHECKSUMS"
+          elif [ -d "$SUBJECT" ]; then
+            find "$SUBJECT" -type f -print0 | sort -z | xargs -0 sha256sum > "$CHECKSUMS"
+          elif [ -f "$SUBJECT" ]; then
+            sha256sum "$SUBJECT" > "$CHECKSUMS"
+          else
+            shopt -s nullglob globstar
+            mapfile -t MATCHES < <(compgen -G "$SUBJECT")
+            if [ "${#MATCHES[@]}" -eq 0 ]; then
+              echo "::error::No files matched subject-path '$SUBJECT'"
+              exit 1
+            fi
+            : > "$CHECKSUMS"
+            for match in "${MATCHES[@]}"; do
+              if [ -d "$match" ]; then
+                find "$match" -type f -print0 | sort -z | xargs -0 sha256sum >> "$CHECKSUMS"
+              elif [ -f "$match" ]; then
+                sha256sum "$match" >> "$CHECKSUMS"
+              fi
+            done
+          fi
+        env:
+          INPUTS_SUBJECT_PATH: ${{ inputs.subject-path }}
+
+      - name: Record build context
+        run: |
+          jq -n \
+            --arg source_repository "${{ github.repository }}" \
+            --arg source_ref "${GITHUB_REF}" \
+            --arg source_sha "${{ github.sha }}" \
+            --arg workflow_ref "${GITHUB_WORKFLOW_REF}" \
+            --arg workflow_sha "${GITHUB_WORKFLOW_SHA}" \
+            --arg run_id "${{ github.run_id }}" \
+            --arg run_attempt "${{ github.run_attempt }}" \
+            --arg artifact_name "${INPUTS_ARTIFACT_NAME}" \
+            --arg subject_path "${INPUTS_SUBJECT_PATH}" \
+            --arg build_inputs "${INPUTS_BUILD_INPUTS}" \
+            '{
+              source_repository: $source_repository,
+              source_ref: $source_ref,
+              source_sha: $source_sha,
+              workflow_ref: $workflow_ref,
+              workflow_sha: $workflow_sha,
+              run_id: $run_id,
+              run_attempt: $run_attempt,
+              artifact_name: $artifact_name,
+              subject_path: $subject_path,
+              build_inputs: ($build_inputs | split("\n") | map(select(length > 0)))
+            }' > "${{ steps.paths.outputs.metadata }}"
+        env:
+          INPUTS_ARTIFACT_NAME: ${{ inputs.artifact-name }}
+          INPUTS_SUBJECT_PATH: ${{ inputs.subject-path }}
+          INPUTS_BUILD_INPUTS: ${{ inputs.build-inputs }}
+
+      - name: Attest artifact checksums
+        id: attest
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-checksums: ${{ steps.paths.outputs.checksums }}
+
+      - name: Upload provenance bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.paths.outputs.provenance-artifact-name }}
+          path: |
+            ${{ steps.paths.outputs.checksums }}
+            ${{ steps.paths.outputs.metadata }}
+            ${{ steps.attest.outputs.bundle-path }}
+          retention-days: ${{ inputs.retention-days }}
+          if-no-files-found: error
+
+      - name: Write job summary
+        run: |
+          {
+            echo "### Artifact Provenance"
+            echo "**Artifact:** \`${INPUTS_ARTIFACT_NAME}\`"
+            echo "**Checksums:** \`${{ steps.paths.outputs.checksums }}\`"
+            echo "**Attestation:** ${{ steps.attest.outputs.attestation-url }}"
+            echo "**Provenance Artifact:** \`${{ steps.paths.outputs.provenance-artifact-name }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          INPUTS_ARTIFACT_NAME: ${{ inputs.artifact-name }}

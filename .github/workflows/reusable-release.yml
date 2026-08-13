@@ -80,14 +80,18 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ needs.release-please.outputs.tag-name }}
+          persist-credentials: false
 
       - name: Write release summary
         run: |
           {
             echo "### 🚀 Release Published"
-            echo "**Version:** \`${{ needs.release-please.outputs.tag-name }}\`"
-            echo "**Branch:** \`${{ inputs.release-branch }}\`"
+            echo "**Version:** \`${NEEDS_RELEASE_PLEASE_OUTPUTS_TAG_NAME}\`"
+            echo "**Branch:** \`${INPUTS_RELEASE_BRANCH}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          NEEDS_RELEASE_PLEASE_OUTPUTS_TAG_NAME: ${{ needs.release-please.outputs.tag-name }}
+          INPUTS_RELEASE_BRANCH: ${{ inputs.release-branch }}
 
       # - name: Notify Slack on release
       #   if: inputs.notify-slack && secrets.slack-webhook != ''

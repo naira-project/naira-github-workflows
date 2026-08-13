@@ -29,6 +29,8 @@ naira-github-workflows/
 │   │   ├── reusable-go-test.yml
 │   │   ├── reusable-dco-reuse.yml
 │   │   ├── reusable-container-build.yml
+│   │   ├── reusable-container-verify.yml
+│   │   ├── reusable-artifact-provenance.yml
 │   │   ├── reusable-helm-publish.yml
 │   │   ├── reusable-security-scan.yml
 │   │   └── reusable-release.yml

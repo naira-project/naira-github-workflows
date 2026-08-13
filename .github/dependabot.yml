@@ -24,6 +24,8 @@ updates:
       github-actions:
         patterns:
           - "*"
+    cooldown:
+      default-days: 7
 
   # ── Go modules (add to Go service repos) ──────────────────────────────────
   # - package-ecosystem: "gomod"

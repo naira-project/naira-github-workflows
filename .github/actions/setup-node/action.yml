@@ -32,11 +32,14 @@ runs:
       id: lockfile
       shell: bash
       run: |
-        case "${{ inputs.package-manager }}" in
-          yarn) echo "path=${{ inputs.working-directory }}/yarn.lock" >> "$GITHUB_OUTPUT" ;;
-          pnpm) echo "path=${{ inputs.working-directory }}/pnpm-lock.yaml" >> "$GITHUB_OUTPUT" ;;
-          *)    echo "path=${{ inputs.working-directory }}/package-lock.json" >> "$GITHUB_OUTPUT" ;;
+        case "${INPUTS_PACKAGE_MANAGER}" in
+          yarn) echo "path=${INPUTS_WORKING_DIRECTORY}/yarn.lock" >> "$GITHUB_OUTPUT" ;;
+          pnpm) echo "path=${INPUTS_WORKING_DIRECTORY}/pnpm-lock.yaml" >> "$GITHUB_OUTPUT" ;;
+          *)    echo "path=${INPUTS_WORKING_DIRECTORY}/package-lock.json" >> "$GITHUB_OUTPUT" ;;
         esac
+      env:
+        INPUTS_PACKAGE_MANAGER: ${{ inputs.package-manager }}
+        INPUTS_WORKING_DIRECTORY: ${{ inputs.working-directory }}
 
     # pnpm must be on PATH before actions/setup-node when cache: pnpm is set,
     # so that setup-node can locate pnpm and the lockfile for cache keying.
@@ -53,4 +56,6 @@ runs:
 
     - name: Print Node version
       shell: bash
-      run: node --version && ${{ inputs.package-manager }} --version
+      run: node --version && ${INPUTS_PACKAGE_MANAGER} --version
+      env:
+        INPUTS_PACKAGE_MANAGER: ${{ inputs.package-manager }}

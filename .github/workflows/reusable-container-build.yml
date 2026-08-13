@@ -38,6 +38,10 @@ on:
         description: "Sign the published image with Cosign (keyless / GitHub OIDC)"
         type: boolean
         default: true
+      provenance-retention-days:
+        description: "Retention period for uploaded provenance bundles"
+        type: number
+        default: 90
       image-tag:
         description: "Explicit tag to apply (overrides branch naming for releases)"
         type: string
@@ -59,6 +63,15 @@ on:
       image-name:
         description: "Full image name without tag (e.g. ghcr.io/org/naira-catalog)"
         value: ${{ jobs.build-push.outputs.name }}
+      image-ref:
+        description: "Published image reference pinned by digest"
+        value: ${{ jobs.build-push.outputs.image-ref }}
+      attestation-url:
+        description: "GitHub attestation summary URL for the pushed image"
+        value: ${{ jobs.build-push.outputs.attestation-url }}
+      provenance-artifact-name:
+        description: "Name of the uploaded provenance bundle artifact"
+        value: ${{ jobs.build-push.outputs.provenance-artifact-name }}
 
 jobs:
   build-push:
@@ -69,6 +82,9 @@ jobs:
       digest: ${{ steps.push.outputs.digest }}
       tags: ${{ steps.meta.outputs.tags }}
       name: ${{ steps.image.outputs.full }}
+      image-ref: ${{ steps.image.outputs.full }}@${{ steps.push.outputs.digest }}
+      attestation-url: ${{ steps.attest.outputs.attestation-url }}
+      provenance-artifact-name: ${{ steps.provenance-artifact.outputs.name }}
 
     permissions:
       contents: read
@@ -76,28 +92,34 @@ jobs:
       # Required for Cosign keyless signing and SLSA provenance attestation
       id-token: write
       attestations: write
+      artifact-metadata: write
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       # ── Resolve image name ─────────────────────────────────────────────────
       - name: Resolve image name
         id: image
         run: |
-          NAME="${{ inputs.image-name }}"
+          NAME="${INPUTS_IMAGE_NAME}"
           if [ -z "$NAME" ]; then
             # Default: registry/owner/repo-name (lowercase)
-            NAME="${{ inputs.registry }}/$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')"
+            NAME="${INPUTS_REGISTRY}/$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')"
           else
-            NAME="${{ inputs.registry }}/$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')/$NAME"
+            NAME="${INPUTS_REGISTRY}/$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')/$NAME"
           fi
           echo "full=$NAME" >> "$GITHUB_OUTPUT"
+        env:
+          INPUTS_IMAGE_NAME: ${{ inputs.image-name }}
+          INPUTS_REGISTRY: ${{ inputs.registry }}
 
       # ── Generate OCI-compliant tags & labels ───────────────────────────────
       - name: Docker metadata
         id: meta
-        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9  # v6.1.0
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
         with:
           images: ${{ steps.image.outputs.full }}
           labels: |
@@ -121,17 +143,17 @@ jobs:
 
       # ── Platform support ───────────────────────────────────────────────────
       - name: Set up QEMU (for cross-arch builds)
-        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3  # v4.1.0
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5  # v4.1.0
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
         with:
           # Use a named builder so GHA cache is shared across steps
           driver-opts: image=moby/buildkit:latest
 
       # ── Registry login ─────────────────────────────────────────────────────
       - name: Log in to ${{ inputs.registry }}
-        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee  # v4.2.0
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           registry: ${{ inputs.registry }}
           username: ${{ secrets.registry-username || github.actor }}
@@ -140,7 +162,7 @@ jobs:
       # ── Build and push ─────────────────────────────────────────────────────
       - name: Build and push image
         id: push
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7.2.0
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
           context: ${{ inputs.context }}
           file: ${{ inputs.dockerfile }}
@@ -158,33 +180,63 @@ jobs:
 
       - name: Install Cosign
         if: inputs.sign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       - name: Sign image with Cosign (keyless)
         if: inputs.sign
         run: |
           cosign sign --yes \
-            "${{ steps.image.outputs.full }}@${{ steps.push.outputs.digest }}"
+            "${STEPS_IMAGE_OUTPUTS_FULL}@${STEPS_PUSH_OUTPUTS_DIGEST}"
         env:
           COSIGN_EXPERIMENTAL: "true"
+          STEPS_IMAGE_OUTPUTS_FULL: ${{ steps.image.outputs.full }}
+          STEPS_PUSH_OUTPUTS_DIGEST: ${{ steps.push.outputs.digest }}
 
       # ── Attestation (SLSA Level 2) ─────────────────────────────────────────
       - name: Attest image provenance
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32  # v4.1.0
+        id: attest
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-name: ${{ steps.image.outputs.full }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
+
+      - name: Resolve provenance artifact name
+        id: provenance-artifact
+        run: |
+          RAW="${INPUTS_IMAGE_NAME}"
+          if [ -z "$RAW" ]; then
+            RAW="$(basename "${{ github.repository }}")"
+          fi
+          SAFE="$(printf '%s' "$RAW" | tr '/:@' '---' | tr -c 'A-Za-z0-9._-' '-')"
+          echo "name=provenance-$SAFE" >> "$GITHUB_OUTPUT"
+        env:
+          INPUTS_IMAGE_NAME: ${{ inputs.image-name }}
+
+      - name: Upload provenance bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.provenance-artifact.outputs.name }}
+          path: ${{ steps.attest.outputs.bundle-path }}
+          retention-days: ${{ inputs.provenance-retention-days }}
+          if-no-files-found: error
 
       # ── Summary ───────────────────────────────────────────────────────────
       - name: Write job summary
         run: |
           {
             echo "### 🐳 Image Published"
-            echo "**Registry:** \`${{ inputs.registry }}\`"
-            echo "**Digest:** \`${{ steps.push.outputs.digest }}\`"
+            echo "**Registry:** \`${INPUTS_REGISTRY}\`"
+            echo "**Image Ref:** \`${{ steps.image.outputs.full }}@${{ steps.push.outputs.digest }}\`"
+            echo "**Digest:** \`${STEPS_PUSH_OUTPUTS_DIGEST}\`"
+            echo "**Provenance:** ${{ steps.attest.outputs.attestation-url }}"
+            echo "**Provenance Bundle Artifact:** \`${{ steps.provenance-artifact.outputs.name }}\`"
             echo "**Tags:**"
           } >> "$GITHUB_STEP_SUMMARY"
-          echo '${{ steps.meta.outputs.tags }}' | tr ',' '\n' | while read -r tag; do
+          echo "${STEPS_META_OUTPUTS_TAGS}" | tr ',' '\n' | while read -r tag; do
             echo "- \`$tag\`" >> "$GITHUB_STEP_SUMMARY"
           done
+        env:
+          INPUTS_REGISTRY: ${{ inputs.registry }}
+          STEPS_PUSH_OUTPUTS_DIGEST: ${{ steps.push.outputs.digest }}
+          STEPS_META_OUTPUTS_TAGS: ${{ steps.meta.outputs.tags }}
