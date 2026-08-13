@@ -227,10 +227,10 @@ jobs:
           {
             echo "### 🐳 Image Published"
             echo "**Registry:** \`${INPUTS_REGISTRY}\`"
-            echo "**Image Ref:** \`${{ steps.image.outputs.full }}@${{ steps.push.outputs.digest }}\`"
+            echo "**Image Ref:** \`${IMAGE_FULL}@${STEPS_PUSH_OUTPUTS_DIGEST}\`"
             echo "**Digest:** \`${STEPS_PUSH_OUTPUTS_DIGEST}\`"
-            echo "**Provenance:** ${{ steps.attest.outputs.attestation-url }}"
-            echo "**Provenance Bundle Artifact:** \`${{ steps.provenance-artifact.outputs.name }}\`"
+            echo "**Provenance:** ${ATTESTATION_URL}"
+            echo "**Provenance Bundle Artifact:** \`${PROVENANCE_ARTIFACT_NAME}\`"
             echo "**Tags:**"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "${STEPS_META_OUTPUTS_TAGS}" | tr ',' '\n' | while read -r tag; do
@@ -238,5 +238,8 @@ jobs:
           done
         env:
           INPUTS_REGISTRY: ${{ inputs.registry }}
+          IMAGE_FULL: ${{ steps.image.outputs.full }}
           STEPS_PUSH_OUTPUTS_DIGEST: ${{ steps.push.outputs.digest }}
           STEPS_META_OUTPUTS_TAGS: ${{ steps.meta.outputs.tags }}
+          ATTESTATION_URL: ${{ steps.attest.outputs.attestation-url }}
+          PROVENANCE_ARTIFACT_NAME: ${{ steps.provenance-artifact.outputs.name }}
