@@ -13,5 +13,13 @@ rules:
     # check-keys: false allows unquoted 'on:' in GitHub Actions triggers
     check-keys: false
 
+  # Dependabot writes SHA-pin comments as `@<sha> # vX.Y.Z` (one space), so allow it
+  comments:
+    min-spaces-from-content: 1
+
+  # Trailing commented-out example blocks (dependabot ecosystems, optional steps)
+  # have no real content below them to align against — the rule can't handle that pattern.
+  comments-indentation: disable
+
   # GitHub Actions workflow files do not use YAML document markers
   document-start: disable

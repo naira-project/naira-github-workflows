@@ -84,7 +84,7 @@ jobs:
         working-directory: ${{ inputs.artifact-path }}
         run: |
           SUBJECT="${INPUTS_SUBJECT_PATH}"
-          CHECKSUMS="${{ github.workspace }}/${{ steps.paths.outputs.checksums }}"
+          CHECKSUMS="${GITHUB_WORKSPACE}/${CHECKSUMS_FILE}"
           if [ "$SUBJECT" = "." ]; then
             find . -type f -print0 | sort -z | xargs -0 sha256sum > "$CHECKSUMS"
           elif [ -d "$SUBJECT" ]; then
@@ -109,6 +109,7 @@ jobs:
           fi
         env:
           INPUTS_SUBJECT_PATH: ${{ inputs.subject-path }}
+          CHECKSUMS_FILE: ${{ steps.paths.outputs.checksums }}
 
       - name: Record build context
         run: |
@@ -134,11 +135,12 @@ jobs:
               artifact_name: $artifact_name,
               subject_path: $subject_path,
               build_inputs: ($build_inputs | split("\n") | map(select(length > 0)))
-            }' > "${{ steps.paths.outputs.metadata }}"
+            }' > "${METADATA_FILE}"
         env:
           INPUTS_ARTIFACT_NAME: ${{ inputs.artifact-name }}
           INPUTS_SUBJECT_PATH: ${{ inputs.subject-path }}
           INPUTS_BUILD_INPUTS: ${{ inputs.build-inputs }}
+          METADATA_FILE: ${{ steps.paths.outputs.metadata }}
 
       - name: Attest artifact checksums
         id: attest
@@ -162,9 +164,12 @@ jobs:
           {
             echo "### Artifact Provenance"
             echo "**Artifact:** \`${INPUTS_ARTIFACT_NAME}\`"
-            echo "**Checksums:** \`${{ steps.paths.outputs.checksums }}\`"
-            echo "**Attestation:** ${{ steps.attest.outputs.attestation-url }}"
-            echo "**Provenance Artifact:** \`${{ steps.paths.outputs.provenance-artifact-name }}\`"
+            echo "**Checksums:** \`${CHECKSUMS_FILE}\`"
+            echo "**Attestation:** ${ATTESTATION_URL}"
+            echo "**Provenance Artifact:** \`${PROVENANCE_ARTIFACT_NAME}\`"
           } >> "$GITHUB_STEP_SUMMARY"
         env:
           INPUTS_ARTIFACT_NAME: ${{ inputs.artifact-name }}
+          CHECKSUMS_FILE: ${{ steps.paths.outputs.checksums }}
+          ATTESTATION_URL: ${{ steps.attest.outputs.attestation-url }}
+          PROVENANCE_ARTIFACT_NAME: ${{ steps.paths.outputs.provenance-artifact-name }}

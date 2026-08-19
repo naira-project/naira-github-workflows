@@ -60,6 +60,9 @@ on:
       image-tags:
         description: "Comma-separated list of applied image tags"
         value: ${{ jobs.build-push.outputs.tags }}
+      image-name:
+        description: "Full image name without tag (e.g. ghcr.io/org/naira-catalog)"
+        value: ${{ jobs.build-push.outputs.name }}
       image-ref:
         description: "Published image reference pinned by digest"
         value: ${{ jobs.build-push.outputs.image-ref }}
@@ -78,6 +81,7 @@ jobs:
     outputs:
       digest: ${{ steps.push.outputs.digest }}
       tags: ${{ steps.meta.outputs.tags }}
+      name: ${{ steps.image.outputs.full }}
       image-ref: ${{ steps.image.outputs.full }}@${{ steps.push.outputs.digest }}
       attestation-url: ${{ steps.attest.outputs.attestation-url }}
       provenance-artifact-name: ${{ steps.provenance-artifact.outputs.name }}
@@ -122,9 +126,8 @@ jobs:
             org.opencontainers.image.vendor=Naira Project
             ${{ inputs.image-labels }}
           tags: |
-            # Inject the explicit release tag if provided by the release workflow
+            # Explicit release tag injected by the release workflow (takes priority)
             type=raw,value=${{ inputs.image-tag }},enable=${{ inputs.image-tag != '' }}
-            # Fallback standard tags
             # Tag with full semver on version tags (v1.2.3 → 1.2.3, 1.2, 1)
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -224,10 +227,10 @@ jobs:
           {
             echo "### 🐳 Image Published"
             echo "**Registry:** \`${INPUTS_REGISTRY}\`"
-            echo "**Image Ref:** \`${{ steps.image.outputs.full }}@${{ steps.push.outputs.digest }}\`"
+            echo "**Image Ref:** \`${IMAGE_FULL}@${STEPS_PUSH_OUTPUTS_DIGEST}\`"
             echo "**Digest:** \`${STEPS_PUSH_OUTPUTS_DIGEST}\`"
-            echo "**Provenance:** ${{ steps.attest.outputs.attestation-url }}"
-            echo "**Provenance Bundle Artifact:** \`${{ steps.provenance-artifact.outputs.name }}\`"
+            echo "**Provenance:** ${ATTESTATION_URL}"
+            echo "**Provenance Bundle Artifact:** \`${PROVENANCE_ARTIFACT_NAME}\`"
             echo "**Tags:**"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "${STEPS_META_OUTPUTS_TAGS}" | tr ',' '\n' | while read -r tag; do
@@ -235,5 +238,8 @@ jobs:
           done
         env:
           INPUTS_REGISTRY: ${{ inputs.registry }}
+          IMAGE_FULL: ${{ steps.image.outputs.full }}
           STEPS_PUSH_OUTPUTS_DIGEST: ${{ steps.push.outputs.digest }}
           STEPS_META_OUTPUTS_TAGS: ${{ steps.meta.outputs.tags }}
+          ATTESTATION_URL: ${{ steps.attest.outputs.attestation-url }}
+          PROVENANCE_ARTIFACT_NAME: ${{ steps.provenance-artifact.outputs.name }}
