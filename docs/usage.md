@@ -37,16 +37,37 @@ For files that cannot carry inline headers (JSON, generated files, assets), use 
 
 The `LICENSES/` directory must contain `Apache-2.0.txt`. Download it from https://spdx.org/licenses/Apache-2.0.html.
 
-### Step 4 — Configure branch protection
+### Step 4 — Confirm branch protection
 
-Go to **Settings → Branches → Add rule** for your `main` branch and enable:
+`main` is protected by rulesets. Do not add or edit rules under **Settings → Branches**; classic branch protection is a legacy layer that a repo admin can remove without trace in rule insights.
 
-- ✅ Require a pull request before merging
-- ✅ Require status checks to pass before merging
-  - Add `All Checks Passed` as the **only** required check (the gate job handles the rest)
-- ✅ Require branches to be up to date before merging
-- ✅ Require linear history
-- ✅ Do not allow bypassing the above settings
+| Layer | Scope | Managed by |
+|---|---|---|
+| Org ruleset `Main Branch Protection` | `refs/heads/main` | Org owners |
+| Repo ruleset `Main and Release Branch Protection` | `refs/heads/main`, `refs/heads/v*` | Repo admins |
+| Classic branch protection | `main` | Legacy, retained as a backstop |
+
+Together they require a pull request with one approving review and code owner review, block deletion and force-push, require signed commits, and require linear history. Merge commits are disabled at repo level; merge with squash or rebase.
+
+Verify:
+
+```bash
+gh api "/repos/naira-project/$REPO/rulesets?includes_parents=true"
+```
+
+If no applicable ruleset carries a `pull_request` rule, copy the house pattern:
+
+```bash
+gh api /repos/naira-project/community/rulesets/14591058 \
+  | jq '{name,target,enforcement,conditions,bypass_actors,rules}' \
+  | gh api --method POST "/repos/naira-project/$REPO/rulesets" --input -
+```
+
+`bypass_actors` must stay empty. A repository role granted `bypass_mode: always` lets every maintainer push straight to `main`.
+
+**Required status checks.** Add a `required_status_checks` rule naming `All Checks Passed` only where `pr-validation.yml` is present and triggers on `pull_request`. A check that runs solely on `push: branches: [main]`, or one behind a `paths:` filter, never reports on a pull request and blocks every merge.
+
+**Exemptions.** `workflow-testing` and `spikes` carry no `pull_request` rule by design; commits land on `main` directly there. Any further exemption needs org owner approval.
 
 ### Step 5 — Enable GITHUB_TOKEN permissions
 
