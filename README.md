@@ -33,6 +33,7 @@ naira-github-workflows/
 │   │   ├── reusable-artifact-provenance.yml
 │   │   ├── reusable-helm-publish.yml
 │   │   ├── reusable-security-scan.yml
+│   │   ├── reusable-workflow-security.yml
 │   │   └── reusable-release.yml
 │   └── actions/                    # Composite actions (shared steps)
 │       ├── setup-go/
