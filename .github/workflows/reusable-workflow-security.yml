@@ -1,0 +1,77 @@
+# SPDX-FileCopyrightText: 2026 Naira Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+name: Reusable · Workflow Security
+
+on:
+  workflow_call:
+    inputs:
+      actionlint-version:
+        description: "actionlint version"
+        type: string
+        default: "1.7.12"
+      actionlint-sha256:
+        description: "SHA256 of the actionlint Linux AMD64 archive"
+        type: string
+        default: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+      zizmor-version:
+        description: "zizmor version"
+        type: string
+        default: "1.29.0"
+      zizmor-min-severity:
+        description: "Minimum zizmor severity: unknown, informational, low, medium, or high"
+        type: string
+        default: "low"
+
+permissions: {}
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run actionlint
+        env:
+          ACTIONLINT_VERSION: ${{ inputs.actionlint-version }}
+          ACTIONLINT_SHA256: ${{ inputs.actionlint-sha256 }}
+        run: |
+          set -euo pipefail
+          TARBALL="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL -o "${TARBALL}" "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${TARBALL}"
+          echo "${ACTIONLINT_SHA256}  ${TARBALL}" | sha256sum -c -
+          tar -xzf "${TARBALL}" actionlint
+          ./actionlint -color
+
+  zizmor:
+    name: zizmor
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Run zizmor
+        env:
+          ZIZMOR_VERSION: ${{ inputs.zizmor-version }}
+          ZIZMOR_MIN_SEVERITY: ${{ inputs.zizmor-min-severity }}
+        run: |
+          set -euo pipefail
+          python -m pip install "zizmor==${ZIZMOR_VERSION}"
+          zizmor --offline --min-severity="${ZIZMOR_MIN_SEVERITY}" .github/workflows/

@@ -305,6 +305,26 @@ For `gh-pages` method, create a `gh-pages` branch and enable GitHub Pages in rep
 
 ---
 
+### `reusable-workflow-security.yml`
+
+Checks GitHub Actions workflows with actionlint and zizmor. The reusable
+workflow checks out and scans the calling repository and requires only read
+access to its contents.
+
+```yaml
+workflow-security:
+  permissions:
+    contents: read
+  uses: naira-project/naira-github-workflows/.github/workflows/reusable-workflow-security.yml@main
+```
+
+The default tool versions and zizmor severity threshold can be overridden with
+the `actionlint-version`, `actionlint-sha256`, `zizmor-version`, and
+`zizmor-min-severity` inputs. When overriding actionlint, update its version and
+archive checksum together.
+
+---
+
 ### `reusable-security-scan.yml`
 
 Runs Trivy (filesystem and/or image) and `govulncheck` for Go projects.
