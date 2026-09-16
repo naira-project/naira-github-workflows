@@ -135,9 +135,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
-    permissions:
-      contents: read
-      packages: write
+    # No explicit `permissions:` here on purpose: a matrix-strategy job that
+    # also declares job-level permissions causes GitHub to reject the whole
+    # reusable workflow at schedule time (startup_failure, zero jobs) —
+    # confirmed empirically. This job inherits the caller-granted
+    # permissions instead, which already include contents:read and
+    # packages:write.
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -267,8 +270,13 @@ jobs:
             TAG_ARGS+=("-t" "$tag")
           done < <(jq -r '.tags[]' <<< "$TAGS_JSON")
           mapfile -t SOURCES < <(printf '%s\n' * | sed "s|^|${IMAGE_FULL}@sha256:|")
-          docker buildx imagetools create --metadata-file /tmp/imagetools-metadata.json "${TAG_ARGS[@]}" "${SOURCES[@]}"
-          digest="$(jq -r '."containerimage.digest"' /tmp/imagetools-metadata.json)"
+          docker buildx imagetools create "${TAG_ARGS[@]}" "${SOURCES[@]}"
+          # `imagetools create` has no --metadata-file digest output; inspect
+          # one of the tags we just created (any of them resolves to the
+          # manifest list we just pushed, unlike a bare image name which
+          # implicitly means :latest -- not present on non-default-branch builds).
+          first_tag="$(jq -r '.tags[0]' <<< "$TAGS_JSON")"
+          digest="$(docker buildx imagetools inspect "$first_tag" --format '{{json .Manifest}}' | jq -r '.digest')"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       - name: Install Cosign
