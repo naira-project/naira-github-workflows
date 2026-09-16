@@ -55,55 +55,36 @@ on:
         required: true
     outputs:
       image-digest:
-        description: "Published image digest (sha256:...)"
-        value: ${{ jobs.build-push.outputs.digest }}
+        description: "Published image digest (sha256:...) of the multi-arch manifest list"
+        value: ${{ jobs.merge.outputs.digest }}
       image-tags:
         description: "Comma-separated list of applied image tags"
-        value: ${{ jobs.build-push.outputs.tags }}
+        value: ${{ jobs.merge.outputs.tags }}
       image-name:
         description: "Full image name without tag (e.g. ghcr.io/org/naira-catalog)"
-        value: ${{ jobs.build-push.outputs.name }}
+        value: ${{ jobs.merge.outputs.name }}
       image-ref:
         description: "Published image reference pinned by digest"
-        value: ${{ jobs.build-push.outputs.image-ref }}
+        value: ${{ jobs.merge.outputs.image-ref }}
       attestation-url:
         description: "GitHub attestation summary URL for the pushed image"
-        value: ${{ jobs.build-push.outputs.attestation-url }}
+        value: ${{ jobs.merge.outputs.attestation-url }}
       provenance-artifact-name:
         description: "Name of the uploaded provenance bundle artifact"
-        value: ${{ jobs.build-push.outputs.provenance-artifact-name }}
+        value: ${{ jobs.merge.outputs.provenance-artifact-name }}
 
 jobs:
-  build-push:
-    name: Build & Push (${{ inputs.platforms }})
+  # ── Resolve the image name once, and turn the platforms input into a
+  #    per-platform runner matrix so amd64/arm64 build natively instead of
+  #    under QEMU emulation (which can be 20-30x slower, and has been
+  #    observed to hang outright on some npm/Node dependency trees).
+  prepare:
+    name: Prepare
     runs-on: ubuntu-24.04
-    # 30m was too tight for a Node-based image doing a multi-arch
-    # (QEMU-emulated arm64) build from a cold cache — it got silently
-    # cancelled mid-release for naira-project/naira's portal image.
-    timeout-minutes: 60
     outputs:
-      digest: ${{ steps.push.outputs.digest }}
-      tags: ${{ steps.meta.outputs.tags }}
-      name: ${{ steps.image.outputs.full }}
-      image-ref: ${{ steps.image.outputs.full }}@${{ steps.push.outputs.digest }}
-      attestation-url: ${{ steps.attest.outputs.attestation-url }}
-      provenance-artifact-name: ${{ steps.provenance-artifact.outputs.name }}
-
-    permissions:
-      contents: read
-      packages: write
-      # Required for Cosign keyless signing and SLSA provenance attestation
-      id-token: write
-      attestations: write
-      artifact-metadata: write
-
+      image-full: ${{ steps.image.outputs.full }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      # ── Resolve image name ─────────────────────────────────────────────────
       - name: Resolve image name
         id: image
         run: |
@@ -119,15 +100,134 @@ jobs:
           INPUTS_IMAGE_NAME: ${{ inputs.image-name }}
           INPUTS_REGISTRY: ${{ inputs.registry }}
 
+      - name: Build platform matrix
+        id: matrix
+        env:
+          INPUTS_PLATFORMS: ${{ inputs.platforms }}
+        run: |
+          # Native GitHub-hosted runners for the platforms we actually use;
+          # anything else falls back to QEMU emulation on an amd64 runner.
+          entries="[]"
+          IFS=',' read -ra PLATFORMS <<< "$INPUTS_PLATFORMS"
+          for platform in "${PLATFORMS[@]}"; do
+            case "$platform" in
+              linux/amd64) runner="ubuntu-24.04"; emulated=false ;;
+              linux/arm64) runner="ubuntu-24.04-arm"; emulated=false ;;
+              *) runner="ubuntu-24.04"; emulated=true ;;
+            esac
+            safe_name="$(printf '%s' "$platform" | tr '/' '-')"
+            entries=$(echo "$entries" | jq -c \
+              --arg platform "$platform" \
+              --arg runner "$runner" \
+              --arg safe_name "$safe_name" \
+              --argjson emulated "$emulated" \
+              '. + [{platform: $platform, runner: $runner, safe_name: $safe_name, emulated: $emulated}]')
+          done
+          echo "matrix={\"include\":$entries}" >> "$GITHUB_OUTPUT"
+
+  # ── Build each platform natively (or under QEMU as a fallback) and push
+  #    it by digest — no tags yet, those go on the merged manifest list.
+  build:
+    name: Build (${{ matrix.platform }})
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up QEMU (emulated platforms only)
+        if: matrix.emulated
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+        with:
+          driver-opts: image=moby/buildkit:latest
+
+      - name: Log in to ${{ inputs.registry }}
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ secrets.registry-username || github.actor }}
+          password: ${{ secrets.registry-password }}
+
+      - name: Build and push by digest
+        id: push
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          labels: |
+            org.opencontainers.image.vendor=Naira Project
+            ${{ inputs.image-labels }}
+          build-args: ${{ inputs.build-args }}
+          # Per-platform GHA cache scope so amd64/arm64 don't thrash a shared cache
+          cache-from: type=gha,scope=${{ matrix.safe_name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.safe_name }}
+          outputs: type=image,name=${{ needs.prepare.outputs.image-full }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${DIGEST#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digests-${{ matrix.safe_name }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # ── Merge the per-platform digests into one multi-arch manifest list,
+  #    tag it, sign it, and attest it — mirrors what a single-runner
+  #    `docker buildx build --platform a,b` used to do in one step.
+  merge:
+    name: Merge & Sign
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
+    outputs:
+      digest: ${{ steps.merge.outputs.digest }}
+      tags: ${{ steps.meta.outputs.tags }}
+      name: ${{ needs.prepare.outputs.image-full }}
+      image-ref: ${{ needs.prepare.outputs.image-full }}@${{ steps.merge.outputs.digest }}
+      attestation-url: ${{ steps.attest.outputs.attestation-url }}
+      provenance-artifact-name: ${{ steps.provenance-artifact.outputs.name }}
+
+    permissions:
+      contents: read
+      packages: write
+      # Required for Cosign keyless signing and SLSA provenance attestation
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
       # ── Generate OCI-compliant tags & labels ───────────────────────────────
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
         with:
-          images: ${{ steps.image.outputs.full }}
-          labels: |
-            org.opencontainers.image.vendor=Naira Project
-            ${{ inputs.image-labels }}
+          images: ${{ needs.prepare.outputs.image-full }}
           tags: |
             # Explicit release tag injected by the release workflow (takes priority)
             type=raw,value=${{ inputs.image-tag }},enable=${{ inputs.image-tag != '' }}
@@ -144,17 +244,9 @@ jobs:
             # Immutable SHA tag for traceability
             type=sha,prefix=sha-,format=short
 
-      # ── Platform support ───────────────────────────────────────────────────
-      - name: Set up QEMU (for cross-arch builds)
-        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
-        with:
-          # Use a named builder so GHA cache is shared across steps
-          driver-opts: image=moby/buildkit:latest
 
-      # ── Registry login ─────────────────────────────────────────────────────
       - name: Log in to ${{ inputs.registry }}
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
@@ -162,24 +254,22 @@ jobs:
           username: ${{ secrets.registry-username || github.actor }}
           password: ${{ secrets.registry-password }}
 
-      # ── Build and push ─────────────────────────────────────────────────────
-      - name: Build and push image
-        id: push
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
-        with:
-          context: ${{ inputs.context }}
-          file: ${{ inputs.dockerfile }}
-          platforms: ${{ inputs.platforms }}
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: ${{ inputs.build-args }}
-          # GitHub Actions layer cache — massively speeds up repeated builds
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          # Attach SBOM and provenance for supply-chain transparency
-          sbom: true
-          provenance: true
+      # ── Combine the per-platform digests into one manifest list ────────────
+      - name: Create manifest list and push
+        id: merge
+        working-directory: /tmp/digests
+        env:
+          IMAGE_FULL: ${{ needs.prepare.outputs.image-full }}
+          TAGS_JSON: ${{ steps.meta.outputs.json }}
+        run: |
+          TAG_ARGS=()
+          while IFS= read -r tag; do
+            TAG_ARGS+=("-t" "$tag")
+          done < <(jq -r '.tags[]' <<< "$TAGS_JSON")
+          mapfile -t SOURCES < <(printf '%s\n' * | sed "s|^|${IMAGE_FULL}@sha256:|")
+          docker buildx imagetools create --metadata-file /tmp/imagetools-metadata.json "${TAG_ARGS[@]}" "${SOURCES[@]}"
+          digest="$(jq -r '."containerimage.digest"' /tmp/imagetools-metadata.json)"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       - name: Install Cosign
         if: inputs.sign
@@ -189,19 +279,19 @@ jobs:
         if: inputs.sign
         run: |
           cosign sign --yes \
-            "${STEPS_IMAGE_OUTPUTS_FULL}@${STEPS_PUSH_OUTPUTS_DIGEST}"
+            "${IMAGE_FULL}@${DIGEST}"
         env:
           COSIGN_EXPERIMENTAL: "true"
-          STEPS_IMAGE_OUTPUTS_FULL: ${{ steps.image.outputs.full }}
-          STEPS_PUSH_OUTPUTS_DIGEST: ${{ steps.push.outputs.digest }}
+          IMAGE_FULL: ${{ needs.prepare.outputs.image-full }}
+          DIGEST: ${{ steps.merge.outputs.digest }}
 
       # ── Attestation (SLSA Level 2) ─────────────────────────────────────────
       - name: Attest image provenance
         id: attest
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
-          subject-name: ${{ steps.image.outputs.full }}
-          subject-digest: ${{ steps.push.outputs.digest }}
+          subject-name: ${{ needs.prepare.outputs.image-full }}
+          subject-digest: ${{ steps.merge.outputs.digest }}
           push-to-registry: true
 
       - name: Resolve provenance artifact name
@@ -230,8 +320,8 @@ jobs:
           {
             echo "### 🐳 Image Published"
             echo "**Registry:** \`${INPUTS_REGISTRY}\`"
-            echo "**Image Ref:** \`${IMAGE_FULL}@${STEPS_PUSH_OUTPUTS_DIGEST}\`"
-            echo "**Digest:** \`${STEPS_PUSH_OUTPUTS_DIGEST}\`"
+            echo "**Image Ref:** \`${IMAGE_FULL}@${DIGEST}\`"
+            echo "**Digest:** \`${DIGEST}\`"
             echo "**Provenance:** ${ATTESTATION_URL}"
             echo "**Provenance Bundle Artifact:** \`${PROVENANCE_ARTIFACT_NAME}\`"
             echo "**Tags:**"
@@ -241,8 +331,8 @@ jobs:
           done
         env:
           INPUTS_REGISTRY: ${{ inputs.registry }}
-          IMAGE_FULL: ${{ steps.image.outputs.full }}
-          STEPS_PUSH_OUTPUTS_DIGEST: ${{ steps.push.outputs.digest }}
+          IMAGE_FULL: ${{ needs.prepare.outputs.image-full }}
+          DIGEST: ${{ steps.merge.outputs.digest }}
           STEPS_META_OUTPUTS_TAGS: ${{ steps.meta.outputs.tags }}
           ATTESTATION_URL: ${{ steps.attest.outputs.attestation-url }}
           PROVENANCE_ARTIFACT_NAME: ${{ steps.provenance-artifact.outputs.name }}
