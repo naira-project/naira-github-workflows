@@ -77,7 +77,10 @@ jobs:
   build-push:
     name: Build & Push (${{ inputs.platforms }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # 30m was too tight for a Node-based image doing a multi-arch
+    # (QEMU-emulated arm64) build from a cold cache — it got silently
+    # cancelled mid-release for naira-project/naira's portal image.
+    timeout-minutes: 60
     outputs:
       digest: ${{ steps.push.outputs.digest }}
       tags: ${{ steps.meta.outputs.tags }}
