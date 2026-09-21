@@ -68,7 +68,7 @@ jobs:
           fi
 
           go test \
-            -count=1
+            -count=1 \
             "${RACE_ARGS[@]}" \
             "${TAG_ARGS[@]}" \
             -v \
