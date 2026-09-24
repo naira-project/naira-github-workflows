@@ -294,7 +294,7 @@ Lints Helm charts with `chart-testing` and publishes to OCI or GitHub Pages.
 uses: naira-project/shared-workflows/.github/workflows/reusable-helm-publish.yml@main
 with:
   charts-directory: "charts"
-  helm-version: "v3.14.4"
+  helm-version: "v4.3.0"
   publish-method: "oci"          # "oci" or "gh-pages"
   lint-only: false               # true = lint only, no push (for PRs)
 secrets:
