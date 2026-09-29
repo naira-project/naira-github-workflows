@@ -1,10 +1,9 @@
 # SPDX-FileCopyrightText: 2026 Naira Project Contributors
 # SPDX-License-Identifier: Apache-2.0
 #
-# Builds a multi-arch image without QEMU emulation:
-#   1. prepare  – resolve image name, tags and labels once; turn `platforms` into a matrix
-#   2. build    – one job per platform on a native runner, pushed by digest (untagged)
-#   3. publish  – combine the digests into one multi-arch manifest, tag, sign and attest it
+# Builds a linux/amd64 + linux/arm64 image on native runners (no QEMU):
+#   1. build    – one job per architecture, pushed by digest (untagged)
+#   2. publish  – combine both digests into one multi-arch image, tag, sign and attest it
 
 name: Reusable · Container Build & Publish
 
@@ -24,17 +23,9 @@ on:
         type: string
         default: "."
       platforms:
-        description: "Comma-separated list of target platforms"
+        description: "Deprecated and ignored: images are always built for linux/amd64 and linux/arm64"
         type: string
-        default: "linux/amd64,linux/arm64"
-      amd64-runner:
-        description: "Runner label for linux/amd64 builds (also used for any non-arm64 platform)"
-        type: string
-        default: "ubuntu-24.04"
-      arm64-runner:
-        description: "Runner label for linux/arm64 builds"
-        type: string
-        default: "ubuntu-24.04-arm"
+        default: ""
       registry:
         description: "Container registry hostname"
         type: string
@@ -72,63 +63,138 @@ on:
         value: ${{ jobs.publish.outputs.digest }}
       image-tags:
         description: "Newline-separated list of applied image tags"
-        value: ${{ jobs.prepare.outputs.tags }}
+        value: ${{ jobs.publish.outputs.tags }}
       image-name:
         description: "Full image name without tag (e.g. ghcr.io/org/naira-catalog)"
-        value: ${{ jobs.prepare.outputs.image }}
+        value: ${{ jobs.build.outputs.image }}
       image-ref:
         description: "Published image reference pinned by digest"
-        value: ${{ jobs.prepare.outputs.image }}@${{ jobs.publish.outputs.digest }}
+        value: ${{ jobs.build.outputs.image }}@${{ jobs.publish.outputs.digest }}
       attestation-url:
         description: "GitHub attestation summary URL for the pushed image"
         value: ${{ jobs.publish.outputs.attestation-url }}
       provenance-artifact-name:
         description: "Name of the uploaded provenance bundle artifact"
-        value: provenance-${{ jobs.prepare.outputs.slug }}
+        value: provenance-${{ jobs.build.outputs.slug }}
 
 jobs:
-  prepare:
-    name: Prepare
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
+  build:
+    name: Build (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
     permissions:
       contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    # Same value in every matrix leg, so the publish job can read them from here
     outputs:
-      image: ${{ steps.vars.outputs.image }}
-      slug: ${{ steps.vars.outputs.slug }}
-      platforms: ${{ steps.vars.outputs.platforms }}
-      tags: ${{ steps.meta.outputs.tags }}
-      labels: ${{ steps.meta.outputs.labels }}
+      image: ${{ steps.image.outputs.full }}
+      slug: ${{ steps.image.outputs.slug }}
     steps:
-      - name: Resolve image name and build matrix
-        id: vars
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Resolve image name
+        id: image
         run: |
           OWNER="$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
           SHORT_NAME="${INPUTS_IMAGE_NAME:-${GITHUB_REPOSITORY#*/}}"
-          IMAGE="${INPUTS_REGISTRY}/${OWNER}/$(echo "$SHORT_NAME" | tr '[:upper:]' '[:lower:]')"
-          # Filesystem/artifact-safe version of the name, used for cache scopes and artifact names
-          SLUG="$(printf '%s' "$SHORT_NAME" | tr -c 'A-Za-z0-9._-' '-')"
-          # "linux/amd64, linux/arm64" -> ["linux/amd64","linux/arm64"]
-          PLATFORMS="$(jq -cRn --arg p "$INPUTS_PLATFORMS" '$p | split(",") | map(gsub("\\s"; "")) | map(select(. != ""))')"
-          {
-            echo "image=$IMAGE"
-            echo "slug=$SLUG"
-            echo "platforms=$PLATFORMS"
-          } >> "$GITHUB_OUTPUT"
+          echo "full=${INPUTS_REGISTRY}/${OWNER}/$(echo "$SHORT_NAME" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+          # Artifact-safe version of the name, used for cache scopes and artifact names
+          echo "slug=$(printf '%s' "$SHORT_NAME" | tr -c 'A-Za-z0-9._-' '-')" >> "$GITHUB_OUTPUT"
         env:
           INPUTS_IMAGE_NAME: ${{ inputs.image-name }}
           INPUTS_REGISTRY: ${{ inputs.registry }}
-          INPUTS_PLATFORMS: ${{ inputs.platforms }}
 
-      # Computed once so every platform image gets identical labels (created, revision, ...)
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
         with:
-          images: ${{ steps.vars.outputs.image }}
+          images: ${{ steps.image.outputs.full }}
           labels: |
             org.opencontainers.image.vendor=Naira Project
             ${{ inputs.image-labels }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Log in to ${{ inputs.registry }}
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ secrets.registry-username || github.actor }}
+          password: ${{ secrets.registry-password }}
+
+      # Pushed without a tag; the publish job tags the combined image
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ steps.image.outputs.full }},push-by-digest=true,name-canonical=true,push=true
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: ${{ inputs.build-args }}
+          # One cache per image and architecture, otherwise they overwrite each other
+          cache-from: type=gha,scope=${{ steps.image.outputs.slug }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ steps.image.outputs.slug }}-${{ matrix.arch }}
+          sbom: true
+          provenance: true
+
+      # Matrix jobs cannot return one output per leg, so each leg hands its
+      # digest to the publish job as an (empty) file named after the digest.
+      - name: Export digest
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+
+      - name: Upload digest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # "--" separates image and arch so the download pattern of image "foo"
+          # cannot match the digests of image "foo-bar" built in the same run
+          name: digests-${{ steps.image.outputs.slug }}--${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish multi-arch image
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read # docker/metadata-action reads repository info
+      packages: write
+      # Required for Cosign keyless signing and SLSA provenance attestation
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    outputs:
+      digest: ${{ steps.manifest.outputs.digest }}
+      tags: ${{ steps.meta.outputs.tags }}
+      attestation-url: ${{ steps.attest.outputs.attestation-url }}
+    env:
+      IMAGE: ${{ needs.build.outputs.image }}
+    steps:
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
+        with:
+          images: ${{ needs.build.outputs.image }}
           tags: |
             # Explicit release tag injected by the release workflow (takes priority)
             type=raw,value=${{ inputs.image-tag }},enable=${{ inputs.image-tag != '' }}
@@ -145,104 +211,11 @@ jobs:
             # Immutable SHA tag for traceability
             type=sha,prefix=sha-,format=short
 
-  build:
-    name: Build (${{ matrix.platform }})
-    needs: prepare
-    runs-on: ${{ startsWith(matrix.platform, 'linux/arm64') && inputs.arm64-runner || inputs.amd64-runner }}
-    timeout-minutes: 60
-    permissions:
-      contents: read
-      packages: write
-    strategy:
-      matrix:
-        platform: ${{ fromJSON(needs.prepare.outputs.platforms) }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      - name: Resolve platform slug
-        id: platform
-        # linux/arm64 -> linux-arm64 (slashes are not allowed in artifact names)
-        run: echo "slug=${PLATFORM//\//-}" >> "$GITHUB_OUTPUT"
-        env:
-          PLATFORM: ${{ matrix.platform }}
-
-      # Only needed for platforms without a native runner (e.g. linux/arm/v7)
-      - name: Set up QEMU
-        if: matrix.platform != 'linux/amd64' && !startsWith(matrix.platform, 'linux/arm64')
-        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
-
-      - name: Log in to ${{ inputs.registry }}
-        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
-        with:
-          registry: ${{ inputs.registry }}
-          username: ${{ secrets.registry-username || github.actor }}
-          password: ${{ secrets.registry-password }}
-
-      # Pushed without a tag; the publish job tags the combined manifest
-      - name: Build and push by digest
-        id: build
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
-        with:
-          context: ${{ inputs.context }}
-          file: ${{ inputs.dockerfile }}
-          platforms: ${{ matrix.platform }}
-          outputs: type=image,name=${{ needs.prepare.outputs.image }},push-by-digest=true,name-canonical=true,push=true
-          labels: ${{ needs.prepare.outputs.labels }}
-          build-args: ${{ inputs.build-args }}
-          # One cache per image and platform, otherwise they overwrite each other
-          cache-from: type=gha,scope=${{ needs.prepare.outputs.slug }}-${{ steps.platform.outputs.slug }}
-          cache-to: type=gha,mode=max,scope=${{ needs.prepare.outputs.slug }}-${{ steps.platform.outputs.slug }}
-          sbom: true
-          provenance: true
-
-      # Matrix jobs cannot return one output per leg, so each leg hands its
-      # digest to the publish job as an (empty) file named after the digest.
-      - name: Export digest
-        run: |
-          mkdir -p "$RUNNER_TEMP/digests"
-          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
-        env:
-          DIGEST: ${{ steps.build.outputs.digest }}
-
-      - name: Upload digest
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          # "--" separates image and platform so the download pattern of image "foo"
-          # cannot match the digests of image "foo-bar" built in the same run
-          name: digests-${{ needs.prepare.outputs.slug }}--${{ steps.platform.outputs.slug }}
-          path: ${{ runner.temp }}/digests/*
-          if-no-files-found: error
-          retention-days: 1
-
-  publish:
-    name: Publish multi-arch manifest
-    needs: [prepare, build]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    permissions:
-      packages: write
-      # Required for Cosign keyless signing and SLSA provenance attestation
-      id-token: write
-      attestations: write
-      artifact-metadata: write
-    outputs:
-      digest: ${{ steps.manifest.outputs.digest }}
-      attestation-url: ${{ steps.attest.outputs.attestation-url }}
-    env:
-      IMAGE: ${{ needs.prepare.outputs.image }}
-      TAGS: ${{ needs.prepare.outputs.tags }}
-    steps:
       - name: Download digests
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: ${{ runner.temp }}/digests
-          pattern: digests-${{ needs.prepare.outputs.slug }}--*
+          pattern: digests-${{ needs.build.outputs.slug }}--*
           merge-multiple: true
 
       - name: Set up Docker Buildx
@@ -255,7 +228,7 @@ jobs:
           username: ${{ secrets.registry-username || github.actor }}
           password: ${{ secrets.registry-password }}
 
-      - name: Create and push multi-arch manifest
+      - name: Create and push multi-arch image
         id: manifest
         run: |
           ARGS=()
@@ -267,6 +240,8 @@ jobs:
           done
           docker buildx imagetools create --metadata-file "$RUNNER_TEMP/manifest.json" "${ARGS[@]}"
           echo "digest=$(jq -r '."containerimage.descriptor".digest' "$RUNNER_TEMP/manifest.json")" >> "$GITHUB_OUTPUT"
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
 
       - name: Install Cosign
         if: inputs.sign
@@ -283,14 +258,14 @@ jobs:
         id: attest
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
-          subject-name: ${{ needs.prepare.outputs.image }}
+          subject-name: ${{ needs.build.outputs.image }}
           subject-digest: ${{ steps.manifest.outputs.digest }}
           push-to-registry: true
 
       - name: Upload provenance bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: provenance-${{ needs.prepare.outputs.slug }}
+          name: provenance-${{ needs.build.outputs.slug }}
           path: ${{ steps.attest.outputs.bundle-path }}
           retention-days: ${{ inputs.provenance-retention-days }}
           if-no-files-found: error
@@ -300,12 +275,11 @@ jobs:
           {
             echo "### 🐳 Image Published"
             echo "**Image Ref:** \`${IMAGE}@${DIGEST}\`"
-            echo "**Platforms:** \`${PLATFORMS}\`"
             echo "**Provenance:** ${ATTESTATION_URL}"
             echo "**Tags:**"
             while read -r tag; do echo "- \`$tag\`"; done <<< "$TAGS"
           } >> "$GITHUB_STEP_SUMMARY"
         env:
           DIGEST: ${{ steps.manifest.outputs.digest }}
-          PLATFORMS: ${{ inputs.platforms }}
+          TAGS: ${{ steps.meta.outputs.tags }}
           ATTESTATION_URL: ${{ steps.attest.outputs.attestation-url }}

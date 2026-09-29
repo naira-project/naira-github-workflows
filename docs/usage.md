@@ -139,7 +139,7 @@ with:
 
 Builds (but does not push) a multi-arch container image. Use this in PR validation workflows — it only requires `contents: read` so callers need no elevated permissions.
 
-Each platform builds in its own job on a native runner (no QEMU emulation), see [Native multi-arch builds](#native-multi-arch-builds).
+Builds `linux/amd64` and `linux/arm64` in parallel on native runners, see [Native multi-arch builds](#native-multi-arch-builds).
 
 ```yaml
 uses: naira-project/shared-workflows/.github/workflows/reusable-container-build-only.yml@main
@@ -147,9 +147,6 @@ with:
   image-name: "naira-api"            # optional, defaults to repo name
   dockerfile: "Dockerfile"           # default
   context: "."                       # default
-  platforms: "linux/amd64,linux/arm64"
-  amd64-runner: "ubuntu-24.04"       # default
-  arm64-runner: "ubuntu-24.04-arm"   # default
   registry: "ghcr.io"                # default
   build-args: |
     VERSION=1.2.3
@@ -171,7 +168,7 @@ No `secrets` block needed — the image is never pushed.
 
 Builds **and pushes** multi-arch container images to `ghcr.io`, signs them with Cosign (keyless), and attests provenance (SLSA Level 2). Use this in release / on-demand workflows.
 
-Each platform builds on its own native runner and is pushed untagged by digest. A final job combines the digests into one multi-arch manifest, tags it, and signs and attests that manifest. See [Native multi-arch builds](#native-multi-arch-builds).
+`linux/amd64` and `linux/arm64` build in parallel on native runners and are pushed untagged by digest. A final job combines both into one multi-arch image, tags it, and signs and attests it. See [Native multi-arch builds](#native-multi-arch-builds).
 
 Requires the caller to declare elevated permissions:
 
@@ -189,9 +186,6 @@ with:
   image-name: "naira-api"            # optional, defaults to repo name
   dockerfile: "Dockerfile"           # default
   context: "."                       # default
-  platforms: "linux/amd64,linux/arm64"
-  amd64-runner: "ubuntu-24.04"       # default
-  arm64-runner: "ubuntu-24.04-arm"   # default
   registry: "ghcr.io"                # default
   sign: true                         # default: Cosign keyless signing
   build-args: |
@@ -224,16 +218,18 @@ artifact named `provenance-<image-name>`.
 
 #### Native multi-arch builds
 
-Both container workflows start one build job per entry in `platforms`:
+Both container workflows always build two images in parallel, without QEMU emulation:
 
 | Platform | Runner |
 |---|---|
-| `linux/arm64` | `arm64-runner` (default `ubuntu-24.04-arm`) |
-| anything else | `amd64-runner` (default `ubuntu-24.04`); QEMU is only set up for platforms other than `linux/amd64` |
+| `linux/amd64` | `ubuntu-24.04` |
+| `linux/arm64` | `ubuntu-24.04-arm` |
 
-The hosted `ubuntu-24.04-arm` runner works in public and private repositories. Public repositories use it for free; private repositories pay per minute, like other hosted runners. To use a larger or self-hosted arm64 runner instead, set `arm64-runner` to its label.
+The hosted `ubuntu-24.04-arm` runner works in public and private repositories. Public repositories use it for free; private repositories pay per minute, like other hosted runners.
 
-The build cache is scoped per image and platform (`<image-name>-linux-amd64`), so calling the workflow for several images in one run does not mix caches.
+The `platforms` input is deprecated and ignored. It is still accepted so existing callers keep working; remove it from your workflow.
+
+The build cache is scoped per image and architecture (`<image-name>-amd64`), so calling the workflow for several images in one run does not mix caches.
 
 The caller must grant these permissions for published images:
 

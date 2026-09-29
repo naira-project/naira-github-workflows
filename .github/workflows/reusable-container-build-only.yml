@@ -19,17 +19,9 @@ on:
         type: string
         default: "."
       platforms:
-        description: "Comma-separated list of target platforms"
+        description: "Deprecated and ignored: images are always built for linux/amd64 and linux/arm64"
         type: string
-        default: "linux/amd64,linux/arm64"
-      amd64-runner:
-        description: "Runner label for linux/amd64 builds (also used for any non-arm64 platform)"
-        type: string
-        default: "ubuntu-24.04"
-      arm64-runner:
-        description: "Runner label for linux/arm64 builds"
-        type: string
-        default: "ubuntu-24.04-arm"
+        default: ""
       registry:
         description: "Container registry hostname"
         type: string
@@ -51,41 +43,21 @@ on:
         value: ${{ jobs.build-only.outputs.tags }}
 
 jobs:
-  prepare:
-    name: Prepare
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions: {}
-    outputs:
-      platforms: ${{ steps.vars.outputs.platforms }}
-      slug: ${{ steps.vars.outputs.slug }}
-    steps:
-      - name: Build matrix
-        id: vars
-        run: |
-          SHORT_NAME="${INPUTS_IMAGE_NAME:-${GITHUB_REPOSITORY#*/}}"
-          # Same cache scope as reusable-container-build.yml, so PRs reuse the main branch cache
-          SLUG="$(printf '%s' "$SHORT_NAME" | tr -c 'A-Za-z0-9._-' '-')"
-          # "linux/amd64, linux/arm64" -> ["linux/amd64","linux/arm64"]
-          PLATFORMS="$(jq -cRn --arg p "$INPUTS_PLATFORMS" '$p | split(",") | map(gsub("\\s"; "")) | map(select(. != ""))')"
-          {
-            echo "slug=$SLUG"
-            echo "platforms=$PLATFORMS"
-          } >> "$GITHUB_OUTPUT"
-        env:
-          INPUTS_IMAGE_NAME: ${{ inputs.image-name }}
-          INPUTS_PLATFORMS: ${{ inputs.platforms }}
-
   build-only:
     name: Build (${{ matrix.platform }})
-    needs: prepare
-    runs-on: ${{ startsWith(matrix.platform, 'linux/arm64') && inputs.arm64-runner || inputs.amd64-runner }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     permissions:
       contents: read
     strategy:
       matrix:
-        platform: ${{ fromJSON(needs.prepare.outputs.platforms) }}
+        include:
+          - platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
     outputs:
       digest: ${{ steps.build.outputs.digest }}
       tags: ${{ steps.meta.outputs.tags }}
@@ -95,24 +67,23 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Resolve image name and platform slug
-        id: vars
+      - name: Resolve image name
+        id: image
         run: |
           OWNER="$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
           SHORT_NAME="${INPUTS_IMAGE_NAME:-${GITHUB_REPOSITORY#*/}}"
-          echo "image=${INPUTS_REGISTRY}/${OWNER}/$(echo "$SHORT_NAME" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
-          # linux/arm64 -> linux-arm64
-          echo "platform=${PLATFORM//\//-}" >> "$GITHUB_OUTPUT"
+          echo "full=${INPUTS_REGISTRY}/${OWNER}/$(echo "$SHORT_NAME" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+          # Same cache scope as reusable-container-build.yml, so PRs reuse the main branch cache
+          echo "slug=$(printf '%s' "$SHORT_NAME" | tr -c 'A-Za-z0-9._-' '-')" >> "$GITHUB_OUTPUT"
         env:
           INPUTS_IMAGE_NAME: ${{ inputs.image-name }}
           INPUTS_REGISTRY: ${{ inputs.registry }}
-          PLATFORM: ${{ matrix.platform }}
 
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9  # v6.1.0
         with:
-          images: ${{ steps.vars.outputs.image }}
+          images: ${{ steps.image.outputs.full }}
           labels: |
             org.opencontainers.image.vendor=Naira Project
             ${{ inputs.image-labels }}
@@ -124,11 +95,6 @@ jobs:
             type=ref,event=pr
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=sha-,format=short
-
-      # Only needed for platforms without a native runner (e.g. linux/arm/v7)
-      - name: Set up QEMU
-        if: matrix.platform != 'linux/amd64' && !startsWith(matrix.platform, 'linux/arm64')
-        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3  # v4.1.0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5  # v4.1.0
@@ -144,5 +110,5 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: ${{ inputs.build-args }}
-          cache-from: type=gha,scope=${{ needs.prepare.outputs.slug }}-${{ steps.vars.outputs.platform }}
-          cache-to: type=gha,mode=max,scope=${{ needs.prepare.outputs.slug }}-${{ steps.vars.outputs.platform }}
+          cache-from: type=gha,scope=${{ steps.image.outputs.slug }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ steps.image.outputs.slug }}-${{ matrix.arch }}
