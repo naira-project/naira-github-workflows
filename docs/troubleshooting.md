@@ -117,7 +117,7 @@ git commit -s -m "chore: tidy go modules"
 ## Container Build Failures
 
 ### Symptom: arm64 build job is queued forever
-The default `arm64-runner` (`ubuntu-24.04-arm`) is only available to public repositories. In a private repository, set `arm64-runner` to a paid larger runner or a self-hosted arm64 label.
+No runner with the `arm64-runner` label is available to the repository, e.g. a self-hosted label with no online runner, or hosted runners restricted by an org policy. Check the label and the org's runner settings.
 
 ### Symptom: QEMU / platform errors
 ```

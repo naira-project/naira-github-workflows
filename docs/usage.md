@@ -231,7 +231,7 @@ Both container workflows start one build job per entry in `platforms`:
 | `linux/arm64` | `arm64-runner` (default `ubuntu-24.04-arm`) |
 | anything else | `amd64-runner` (default `ubuntu-24.04`); QEMU is only set up for platforms other than `linux/amd64` |
 
-GitHub's hosted `ubuntu-24.04-arm` runner is **free for public repositories only**. Private repositories must set `arm64-runner` to a paid larger runner or a self-hosted arm64 runner label.
+The hosted `ubuntu-24.04-arm` runner works in public and private repositories. Public repositories use it for free; private repositories pay per minute, like other hosted runners. To use a larger or self-hosted arm64 runner instead, set `arm64-runner` to its label.
 
 The build cache is scoped per image and platform (`<image-name>-linux-amd64`), so calling the workflow for several images in one run does not mix caches.
 

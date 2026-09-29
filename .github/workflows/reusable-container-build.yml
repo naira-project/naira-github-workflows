@@ -32,7 +32,7 @@ on:
         type: string
         default: "ubuntu-24.04"
       arm64-runner:
-        description: "Runner label for linux/arm64 builds (free for public repos only)"
+        description: "Runner label for linux/arm64 builds"
         type: string
         default: "ubuntu-24.04-arm"
       registry:
