@@ -139,6 +139,8 @@ with:
 
 Builds (but does not push) a multi-arch container image. Use this in PR validation workflows — it only requires `contents: read` so callers need no elevated permissions.
 
+Each platform builds in its own job on a native runner (no QEMU emulation), see [Native multi-arch builds](#native-multi-arch-builds).
+
 ```yaml
 uses: naira-project/shared-workflows/.github/workflows/reusable-container-build-only.yml@main
 with:
@@ -146,6 +148,8 @@ with:
   dockerfile: "Dockerfile"           # default
   context: "."                       # default
   platforms: "linux/amd64,linux/arm64"
+  amd64-runner: "ubuntu-24.04"       # default
+  arm64-runner: "ubuntu-24.04-arm"   # default
   registry: "ghcr.io"                # default
   build-args: |
     VERSION=1.2.3
@@ -158,14 +162,16 @@ No `secrets` block needed — the image is never pushed.
 
 | Output | Description |
 |---|---|
-| `image-digest` | Digest of the locally built image |
-| `image-tags` | Comma-separated list of applied tags |
+| `image-digest` | Digest of one platform build (not pushed, informational only) |
+| `image-tags` | Newline-separated list of tags the image would get |
 
 ---
 
 ### `reusable-container-build.yml`
 
 Builds **and pushes** multi-arch container images to `ghcr.io`, signs them with Cosign (keyless), and attests provenance (SLSA Level 2). Use this in release / on-demand workflows.
+
+Each platform builds on its own native runner and is pushed untagged by digest. A final job combines the digests into one multi-arch manifest, tags it, and signs and attests that manifest. See [Native multi-arch builds](#native-multi-arch-builds).
 
 Requires the caller to declare elevated permissions:
 
@@ -184,6 +190,8 @@ with:
   dockerfile: "Dockerfile"           # default
   context: "."                       # default
   platforms: "linux/amd64,linux/arm64"
+  amd64-runner: "ubuntu-24.04"       # default
+  arm64-runner: "ubuntu-24.04-arm"   # default
   registry: "ghcr.io"                # default
   sign: true                         # default: Cosign keyless signing
   build-args: |
@@ -197,8 +205,8 @@ secrets:
 
 | Output | Description |
 |---|---|
-| `image-digest` | `sha256:...` digest of the pushed image |
-| `image-tags` | Comma-separated list of applied tags |
+| `image-digest` | `sha256:...` digest of the pushed multi-arch manifest |
+| `image-tags` | Newline-separated list of applied tags |
 | `image-ref` | Digest-pinned image reference, e.g. `ghcr.io/org/app@sha256:...` |
 | `attestation-url` | GitHub attestation summary URL for the image provenance |
 
@@ -213,6 +221,19 @@ When `push: true`, the workflow signs the image with keyless Cosign, generates
 SLSA build provenance, pushes the attestation to the image registry, stores it
 in GitHub's attestation store, and uploads the attestation bundle as a workflow
 artifact named `provenance-<image-name>`.
+
+#### Native multi-arch builds
+
+Both container workflows start one build job per entry in `platforms`:
+
+| Platform | Runner |
+|---|---|
+| `linux/arm64` | `arm64-runner` (default `ubuntu-24.04-arm`) |
+| anything else | `amd64-runner` (default `ubuntu-24.04`); QEMU is only set up for platforms other than `linux/amd64` |
+
+GitHub's hosted `ubuntu-24.04-arm` runner is **free for public repositories only**. Private repositories must set `arm64-runner` to a paid larger runner or a self-hosted arm64 runner label.
+
+The build cache is scoped per image and platform (`<image-name>-linux-amd64`), so calling the workflow for several images in one run does not mix caches.
 
 The caller must grant these permissions for published images:
 

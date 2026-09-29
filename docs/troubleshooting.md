@@ -116,12 +116,15 @@ git commit -s -m "chore: tidy go modules"
 
 ## Container Build Failures
 
+### Symptom: arm64 build job is queued forever
+The default `arm64-runner` (`ubuntu-24.04-arm`) is only available to public repositories. In a private repository, set `arm64-runner` to a paid larger runner or a self-hosted arm64 label.
+
 ### Symptom: QEMU / platform errors
 ```
 error: failed to solve: failed to read dockerfile: ...
 ```
 
-Ensure your `Dockerfile` uses a base image that supports the target platform:
+`linux/amd64` and `linux/arm64` build natively; QEMU is only used for other platforms (e.g. `linux/arm/v7`). Ensure your `Dockerfile` uses a base image that supports the target platform:
 ```dockerfile
 # Use multi-platform base images
 FROM --platform=$BUILDPLATFORM golang:1.22-alpine AS builder
