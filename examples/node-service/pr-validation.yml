@@ -50,7 +50,6 @@ jobs:
     name: Container Build
     uses: naira-project/shared-workflows/.github/workflows/reusable-container-build-only.yml@main
     with:
-      platforms: "linux/amd64,linux/arm64"
 
   all-checks:
     name: All Checks Passed

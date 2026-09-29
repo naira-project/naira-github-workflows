@@ -116,7 +116,10 @@ git commit -s -m "chore: tidy go modules"
 
 ## Container Build Failures
 
-### Symptom: QEMU / platform errors
+### Symptom: arm64 build job is queued forever
+The hosted `ubuntu-24.04-arm` runner is not available to the repository, e.g. because an org policy restricts hosted runners. Check the org's runner settings.
+
+### Symptom: platform errors
 ```
 error: failed to solve: failed to read dockerfile: ...
 ```
