@@ -256,7 +256,11 @@ uses: naira-project/naira-github-workflows/.github/workflows/reusable-container-
 with:
   image-ref: "ghcr.io/org/app@sha256:..."
   source-digest: ${{ github.sha }}
+secrets:
+  registry-password: ${{ secrets.GITHUB_TOKEN }}  # only needed for private images
 ```
+
+The job requests `packages: read`, so a caller with an explicit `permissions` block must grant it.
 
 Set `verify-signature: false` or `verify-provenance: false` only when debugging
 a partial release. Release gates should leave both enabled.
