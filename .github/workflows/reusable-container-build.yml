@@ -98,6 +98,7 @@ jobs:
     outputs:
       image: ${{ steps.image.outputs.full }}
       slug: ${{ steps.image.outputs.slug }}
+      tags: ${{ steps.meta.outputs.tags }}
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -124,6 +125,22 @@ jobs:
           labels: |
             org.opencontainers.image.vendor=Naira Project
             ${{ inputs.image-labels }}
+          # Also sets org.opencontainers.image.version, so the tag rules must live here
+          tags: |
+            # Explicit release tag injected by the release workflow (takes priority)
+            type=raw,value=${{ inputs.image-tag }},enable=${{ inputs.image-tag != '' }}
+            # Tag with full semver on version tags (v1.2.3 → 1.2.3, 1.2, 1)
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            # Branch builds → branch-name
+            type=ref,event=branch
+            # PR builds → pr-42
+            type=ref,event=pr
+            # Always tag latest on default branch
+            type=raw,value=latest,enable={{is_default_branch}}
+            # Immutable SHA tag for traceability
+            type=sha,prefix=sha-,format=short
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
@@ -177,7 +194,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
-      contents: read # docker/metadata-action reads repository info
+      contents: read
       packages: write
       # Required for Cosign keyless signing and SLSA provenance attestation
       id-token: write
@@ -185,32 +202,11 @@ jobs:
       artifact-metadata: write
     outputs:
       digest: ${{ steps.manifest.outputs.digest }}
-      tags: ${{ steps.meta.outputs.tags }}
+      tags: ${{ needs.build.outputs.tags }}
       attestation-url: ${{ steps.attest.outputs.attestation-url }}
     env:
       IMAGE: ${{ needs.build.outputs.image }}
     steps:
-      - name: Docker metadata
-        id: meta
-        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
-        with:
-          images: ${{ needs.build.outputs.image }}
-          tags: |
-            # Explicit release tag injected by the release workflow (takes priority)
-            type=raw,value=${{ inputs.image-tag }},enable=${{ inputs.image-tag != '' }}
-            # Tag with full semver on version tags (v1.2.3 → 1.2.3, 1.2, 1)
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            # Branch builds → branch-name
-            type=ref,event=branch
-            # PR builds → pr-42
-            type=ref,event=pr
-            # Always tag latest on default branch
-            type=raw,value=latest,enable={{is_default_branch}}
-            # Immutable SHA tag for traceability
-            type=sha,prefix=sha-,format=short
-
       - name: Download digests
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -241,7 +237,7 @@ jobs:
           docker buildx imagetools create --metadata-file "$RUNNER_TEMP/manifest.json" "${ARGS[@]}"
           echo "digest=$(jq -r '."containerimage.descriptor".digest' "$RUNNER_TEMP/manifest.json")" >> "$GITHUB_OUTPUT"
         env:
-          TAGS: ${{ steps.meta.outputs.tags }}
+          TAGS: ${{ needs.build.outputs.tags }}
 
       - name: Install Cosign
         if: inputs.sign
@@ -281,5 +277,5 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
         env:
           DIGEST: ${{ steps.manifest.outputs.digest }}
-          TAGS: ${{ steps.meta.outputs.tags }}
+          TAGS: ${{ needs.build.outputs.tags }}
           ATTESTATION_URL: ${{ steps.attest.outputs.attestation-url }}
