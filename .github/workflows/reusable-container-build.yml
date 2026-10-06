@@ -1,5 +1,9 @@
 # SPDX-FileCopyrightText: 2026 Naira Project Contributors
 # SPDX-License-Identifier: Apache-2.0
+#
+# Builds a linux/amd64 + linux/arm64 image on native runners (no QEMU):
+#   1. build    – one job per architecture, pushed by digest (untagged)
+#   2. publish  – combine both digests into one multi-arch image, tag, sign and attest it
 
 name: Reusable · Container Build & Publish
 
@@ -19,9 +23,9 @@ on:
         type: string
         default: "."
       platforms:
-        description: "Comma-separated list of target platforms"
+        description: "Deprecated and ignored: images are always built for linux/amd64 and linux/arm64"
         type: string
-        default: "linux/amd64,linux/arm64"
+        default: ""
       registry:
         description: "Container registry hostname"
         type: string
@@ -55,71 +59,68 @@ on:
         required: true
     outputs:
       image-digest:
-        description: "Published image digest (sha256:...)"
-        value: ${{ jobs.build-push.outputs.digest }}
+        description: "Published multi-arch manifest digest (sha256:...)"
+        value: ${{ jobs.publish.outputs.digest }}
       image-tags:
-        description: "Comma-separated list of applied image tags"
-        value: ${{ jobs.build-push.outputs.tags }}
+        description: "Newline-separated list of applied image tags"
+        value: ${{ jobs.publish.outputs.tags }}
       image-name:
         description: "Full image name without tag (e.g. ghcr.io/org/naira-catalog)"
-        value: ${{ jobs.build-push.outputs.name }}
+        value: ${{ jobs.build.outputs.image }}
       image-ref:
         description: "Published image reference pinned by digest"
-        value: ${{ jobs.build-push.outputs.image-ref }}
+        value: ${{ jobs.build.outputs.image }}@${{ jobs.publish.outputs.digest }}
       attestation-url:
         description: "GitHub attestation summary URL for the pushed image"
-        value: ${{ jobs.build-push.outputs.attestation-url }}
+        value: ${{ jobs.publish.outputs.attestation-url }}
       provenance-artifact-name:
         description: "Name of the uploaded provenance bundle artifact"
-        value: ${{ jobs.build-push.outputs.provenance-artifact-name }}
+        value: provenance-${{ jobs.build.outputs.slug }}
 
 jobs:
-  build-push:
-    name: Build & Push (${{ inputs.platforms }})
-    runs-on: ubuntu-24.04
-    # 30m was too tight for a Node-based image doing a multi-arch
-    # (QEMU-emulated arm64) build from a cold cache — it got silently
-    # cancelled mid-release for naira-project/naira's portal image.
+  build:
+    name: Build (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
-    outputs:
-      digest: ${{ steps.push.outputs.digest }}
-      tags: ${{ steps.meta.outputs.tags }}
-      name: ${{ steps.image.outputs.full }}
-      image-ref: ${{ steps.image.outputs.full }}@${{ steps.push.outputs.digest }}
-      attestation-url: ${{ steps.attest.outputs.attestation-url }}
-      provenance-artifact-name: ${{ steps.provenance-artifact.outputs.name }}
-
     permissions:
       contents: read
       packages: write
-      # Required for Cosign keyless signing and SLSA provenance attestation
-      id-token: write
-      attestations: write
-      artifact-metadata: write
-
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    # Same value in every matrix leg, so the publish job can read them from here
+    outputs:
+      image: ${{ steps.image.outputs.full }}
+      slug: ${{ steps.image.outputs.slug }}
+      tags: ${{ steps.meta.outputs.tags }}
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
-      # ── Resolve image name ─────────────────────────────────────────────────
       - name: Resolve image name
         id: image
         run: |
-          NAME="${INPUTS_IMAGE_NAME}"
-          if [ -z "$NAME" ]; then
-            # Default: registry/owner/repo-name (lowercase)
-            NAME="${INPUTS_REGISTRY}/$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')"
-          else
-            NAME="${INPUTS_REGISTRY}/$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')/$NAME"
+          if [ -n "$INPUTS_PLATFORMS" ]; then
+            echo "::warning::The 'platforms' input is deprecated and ignored (always linux/amd64 + linux/arm64), remove it."
           fi
-          echo "full=$NAME" >> "$GITHUB_OUTPUT"
+          OWNER="$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          SHORT_NAME="${INPUTS_IMAGE_NAME:-${GITHUB_REPOSITORY#*/}}"
+          echo "full=${INPUTS_REGISTRY}/${OWNER}/$(echo "$SHORT_NAME" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+          # Artifact-safe version of the name, used for cache scopes and artifact names
+          echo "slug=$(printf '%s' "$SHORT_NAME" | tr -c 'A-Za-z0-9._-' '-')" >> "$GITHUB_OUTPUT"
         env:
           INPUTS_IMAGE_NAME: ${{ inputs.image-name }}
           INPUTS_REGISTRY: ${{ inputs.registry }}
+          INPUTS_PLATFORMS: ${{ inputs.platforms }}
 
-      # ── Generate OCI-compliant tags & labels ───────────────────────────────
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
@@ -128,6 +129,7 @@ jobs:
           labels: |
             org.opencontainers.image.vendor=Naira Project
             ${{ inputs.image-labels }}
+          # Also sets org.opencontainers.image.version, so the tag rules must live here
           tags: |
             # Explicit release tag injected by the release workflow (takes priority)
             type=raw,value=${{ inputs.image-tag }},enable=${{ inputs.image-tag != '' }}
@@ -144,17 +146,9 @@ jobs:
             # Immutable SHA tag for traceability
             type=sha,prefix=sha-,format=short
 
-      # ── Platform support ───────────────────────────────────────────────────
-      - name: Set up QEMU (for cross-arch builds)
-        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
-        with:
-          # Use a named builder so GHA cache is shared across steps
-          driver-opts: image=moby/buildkit:latest
 
-      # ── Registry login ─────────────────────────────────────────────────────
       - name: Log in to ${{ inputs.registry }}
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
@@ -162,24 +156,92 @@ jobs:
           username: ${{ secrets.registry-username || github.actor }}
           password: ${{ secrets.registry-password }}
 
-      # ── Build and push ─────────────────────────────────────────────────────
-      - name: Build and push image
-        id: push
+      # Pushed without a tag; the publish job tags the combined image
+      - name: Build and push by digest
+        id: build
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
           context: ${{ inputs.context }}
           file: ${{ inputs.dockerfile }}
-          platforms: ${{ inputs.platforms }}
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ steps.image.outputs.full }},push-by-digest=true,name-canonical=true,push=true
           labels: ${{ steps.meta.outputs.labels }}
           build-args: ${{ inputs.build-args }}
-          # GitHub Actions layer cache — massively speeds up repeated builds
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          # Attach SBOM and provenance for supply-chain transparency
+          # One cache per image and architecture, otherwise they overwrite each other
+          cache-from: type=gha,scope=${{ steps.image.outputs.slug }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ steps.image.outputs.slug }}-${{ matrix.arch }}
           sbom: true
           provenance: true
+
+      # Matrix jobs cannot return one output per leg, so each leg hands its
+      # digest to the publish job as an (empty) file named after the digest.
+      - name: Export digest
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+
+      - name: Upload digest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # "--" separates image and arch so the download pattern of image "foo"
+          # cannot match the digests of image "foo-bar" built in the same run
+          name: digests-${{ steps.image.outputs.slug }}--${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish multi-arch image
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+      # Required for Cosign keyless signing and SLSA provenance attestation
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    outputs:
+      digest: ${{ steps.manifest.outputs.digest }}
+      tags: ${{ needs.build.outputs.tags }}
+      attestation-url: ${{ steps.attest.outputs.attestation-url }}
+    env:
+      IMAGE: ${{ needs.build.outputs.image }}
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-${{ needs.build.outputs.slug }}--*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Log in to ${{ inputs.registry }}
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ secrets.registry-username || github.actor }}
+          password: ${{ secrets.registry-password }}
+
+      - name: Create and push multi-arch image
+        id: manifest
+        run: |
+          ARGS=()
+          while read -r tag; do
+            [ -n "$tag" ] && ARGS+=(--tag "$tag")
+          done <<< "$TAGS"
+          for digest_file in "$RUNNER_TEMP"/digests/*; do
+            ARGS+=("${IMAGE}@sha256:$(basename "$digest_file")")
+          done
+          docker buildx imagetools create --metadata-file "$RUNNER_TEMP/manifest.json" "${ARGS[@]}"
+          echo "digest=$(jq -r '."containerimage.descriptor".digest' "$RUNNER_TEMP/manifest.json")" >> "$GITHUB_OUTPUT"
+        env:
+          TAGS: ${{ needs.build.outputs.tags }}
 
       - name: Install Cosign
         if: inputs.sign
@@ -187,62 +249,37 @@ jobs:
 
       - name: Sign image with Cosign (keyless)
         if: inputs.sign
-        run: |
-          cosign sign --yes \
-            "${STEPS_IMAGE_OUTPUTS_FULL}@${STEPS_PUSH_OUTPUTS_DIGEST}"
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
         env:
-          COSIGN_EXPERIMENTAL: "true"
-          STEPS_IMAGE_OUTPUTS_FULL: ${{ steps.image.outputs.full }}
-          STEPS_PUSH_OUTPUTS_DIGEST: ${{ steps.push.outputs.digest }}
+          DIGEST: ${{ steps.manifest.outputs.digest }}
 
       # ── Attestation (SLSA Level 2) ─────────────────────────────────────────
       - name: Attest image provenance
         id: attest
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
-          subject-name: ${{ steps.image.outputs.full }}
-          subject-digest: ${{ steps.push.outputs.digest }}
+          subject-name: ${{ needs.build.outputs.image }}
+          subject-digest: ${{ steps.manifest.outputs.digest }}
           push-to-registry: true
-
-      - name: Resolve provenance artifact name
-        id: provenance-artifact
-        run: |
-          RAW="${INPUTS_IMAGE_NAME}"
-          if [ -z "$RAW" ]; then
-            RAW="$(basename "${{ github.repository }}")"
-          fi
-          SAFE="$(printf '%s' "$RAW" | tr '/:@' '---' | tr -c 'A-Za-z0-9._-' '-')"
-          echo "name=provenance-$SAFE" >> "$GITHUB_OUTPUT"
-        env:
-          INPUTS_IMAGE_NAME: ${{ inputs.image-name }}
 
       - name: Upload provenance bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ steps.provenance-artifact.outputs.name }}
+          name: provenance-${{ needs.build.outputs.slug }}
           path: ${{ steps.attest.outputs.bundle-path }}
           retention-days: ${{ inputs.provenance-retention-days }}
           if-no-files-found: error
 
-      # ── Summary ───────────────────────────────────────────────────────────
       - name: Write job summary
         run: |
           {
             echo "### 🐳 Image Published"
-            echo "**Registry:** \`${INPUTS_REGISTRY}\`"
-            echo "**Image Ref:** \`${IMAGE_FULL}@${STEPS_PUSH_OUTPUTS_DIGEST}\`"
-            echo "**Digest:** \`${STEPS_PUSH_OUTPUTS_DIGEST}\`"
+            echo "**Image Ref:** \`${IMAGE}@${DIGEST}\`"
             echo "**Provenance:** ${ATTESTATION_URL}"
-            echo "**Provenance Bundle Artifact:** \`${PROVENANCE_ARTIFACT_NAME}\`"
             echo "**Tags:**"
+            while read -r tag; do echo "- \`$tag\`"; done <<< "$TAGS"
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "${STEPS_META_OUTPUTS_TAGS}" | tr ',' '\n' | while read -r tag; do
-            echo "- \`$tag\`" >> "$GITHUB_STEP_SUMMARY"
-          done
         env:
-          INPUTS_REGISTRY: ${{ inputs.registry }}
-          IMAGE_FULL: ${{ steps.image.outputs.full }}
-          STEPS_PUSH_OUTPUTS_DIGEST: ${{ steps.push.outputs.digest }}
-          STEPS_META_OUTPUTS_TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.manifest.outputs.digest }}
+          TAGS: ${{ needs.build.outputs.tags }}
           ATTESTATION_URL: ${{ steps.attest.outputs.attestation-url }}
-          PROVENANCE_ARTIFACT_NAME: ${{ steps.provenance-artifact.outputs.name }}
