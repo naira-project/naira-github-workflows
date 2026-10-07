@@ -11,9 +11,12 @@ on:
         type: string
         default: "charts"
       helm-version:
-        description: "Helm CLI version"
+        description: >-
+          Helm CLI version. Helm 4 by default: charts locked with Helm 4 need
+          it, and Helm 4 changed CLI flags and output. Callers on Helm 3 pass
+          v3.x explicitly.
         type: string
-        default: "v3.14.4"
+        default: "v4.3.0"
       publish-method:
         description: "How to publish: 'oci' (ghcr.io) or 'gh-pages'"
         type: string
