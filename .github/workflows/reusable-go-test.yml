@@ -77,6 +77,7 @@ jobs:
             ./...
         env:
           INPUTS_TEST_TAGS: ${{ inputs.test-tags }}
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Extract coverage percentage
         id: coverage

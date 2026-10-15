@@ -66,7 +66,6 @@ jobs:
     name: Container Build
     uses: naira-project/shared-workflows/.github/workflows/reusable-container-build-only.yml@main
     with:
-      platforms: "linux/amd64,linux/arm64"
       dockerfile: "Dockerfile"
 
   # ── Gate: all checks must pass ─────────────────────────────────────────────

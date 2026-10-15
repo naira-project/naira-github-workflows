@@ -19,9 +19,9 @@ on:
         type: string
         default: "."
       platforms:
-        description: "Comma-separated list of target platforms"
+        description: "Deprecated and ignored: images are always built for linux/amd64 and linux/arm64"
         type: string
-        default: "linux/amd64,linux/arm64"
+        default: ""
       registry:
         description: "Container registry hostname"
         type: string
@@ -36,24 +36,31 @@ on:
         default: ""
     outputs:
       image-digest:
-        description: "Build image digest (sha256:...)"
+        description: "Digest of one platform build (not pushed, informational only)"
         value: ${{ jobs.build-only.outputs.digest }}
       image-tags:
-        description: "Comma-separated list of applied image tags"
+        description: "Newline-separated list of tags the image would get"
         value: ${{ jobs.build-only.outputs.tags }}
 
 jobs:
   build-only:
-    name: Build (${{ inputs.platforms }})
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    name: Build (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
     outputs:
       digest: ${{ steps.build.outputs.digest }}
       tags: ${{ steps.meta.outputs.tags }}
-
-    permissions:
-      contents: read
-
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
@@ -63,16 +70,18 @@ jobs:
       - name: Resolve image name
         id: image
         run: |
-          NAME="${INPUTS_IMAGE_NAME}"
-          if [ -z "$NAME" ]; then
-            NAME="${INPUTS_REGISTRY}/$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')"
-          else
-            NAME="${INPUTS_REGISTRY}/$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')/$NAME"
+          if [ -n "$INPUTS_PLATFORMS" ]; then
+            echo "::warning::The 'platforms' input is deprecated and ignored (always linux/amd64 + linux/arm64), remove it."
           fi
-          echo "full=$NAME" >> "$GITHUB_OUTPUT"
+          OWNER="$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          SHORT_NAME="${INPUTS_IMAGE_NAME:-${GITHUB_REPOSITORY#*/}}"
+          echo "full=${INPUTS_REGISTRY}/${OWNER}/$(echo "$SHORT_NAME" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+          # Same cache scope as reusable-container-build.yml, so PRs reuse the main branch cache
+          echo "slug=$(printf '%s' "$SHORT_NAME" | tr -c 'A-Za-z0-9._-' '-')" >> "$GITHUB_OUTPUT"
         env:
           INPUTS_IMAGE_NAME: ${{ inputs.image-name }}
           INPUTS_REGISTRY: ${{ inputs.registry }}
+          INPUTS_PLATFORMS: ${{ inputs.platforms }}
 
       - name: Docker metadata
         id: meta
@@ -91,13 +100,8 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=sha-,format=short
 
-      - name: Set up QEMU (for cross-arch builds)
-        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3  # v4.1.0
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5  # v4.1.0
-        with:
-          driver-opts: image=moby/buildkit:latest
 
       - name: Build image (no push)
         id: build
@@ -105,12 +109,10 @@ jobs:
         with:
           context: ${{ inputs.context }}
           file: ${{ inputs.dockerfile }}
-          platforms: ${{ inputs.platforms }}
+          platforms: ${{ matrix.platform }}
           push: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: ${{ inputs.build-args }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          sbom: true
-          provenance: true
+          cache-from: type=gha,scope=${{ steps.image.outputs.slug }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ steps.image.outputs.slug }}-${{ matrix.arch }}

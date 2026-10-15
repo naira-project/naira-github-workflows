@@ -38,6 +38,17 @@ on:
         description: "Reusable workflow expected to have signed the provenance"
         type: string
         default: "naira-project/naira-github-workflows/.github/workflows/reusable-container-build.yml"
+      registry:
+        description: "Registry to log in to when registry-password is set"
+        type: string
+        default: "ghcr.io"
+    secrets:
+      registry-username:
+        description: "Registry username (defaults to github.actor if not set)"
+        required: false
+      registry-password:
+        description: "Registry token; required to pull private images"
+        required: false
 
 jobs:
   verify:
@@ -47,7 +58,21 @@ jobs:
     permissions:
       contents: read
       attestations: read
+      # Pull access for private images
+      packages: read
+    env:
+      # `secrets` is not available in step conditions, so expose whether it is set
+      HAS_REGISTRY_PASSWORD: ${{ secrets.registry-password != '' }}
     steps:
+      # Anonymous pulls work for public images only
+      - name: Log in to ${{ inputs.registry }}
+        if: env.HAS_REGISTRY_PASSWORD == 'true'
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ secrets.registry-username || github.actor }}
+          password: ${{ secrets.registry-password }}
+
       - name: Install Cosign
         if: inputs.verify-signature
         uses: sigstore/cosign-installer@ba7bc0a3fef59531c69a25acd34668d6d3fe6f22  # v4.1.0

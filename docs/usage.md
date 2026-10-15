@@ -139,13 +139,14 @@ with:
 
 Builds (but does not push) a multi-arch container image. Use this in PR validation workflows — it only requires `contents: read` so callers need no elevated permissions.
 
+Builds `linux/amd64` and `linux/arm64` in parallel on native runners, see [Native multi-arch builds](#native-multi-arch-builds).
+
 ```yaml
 uses: naira-project/shared-workflows/.github/workflows/reusable-container-build-only.yml@main
 with:
   image-name: "naira-api"            # optional, defaults to repo name
   dockerfile: "Dockerfile"           # default
   context: "."                       # default
-  platforms: "linux/amd64,linux/arm64"
   registry: "ghcr.io"                # default
   build-args: |
     VERSION=1.2.3
@@ -158,14 +159,16 @@ No `secrets` block needed — the image is never pushed.
 
 | Output | Description |
 |---|---|
-| `image-digest` | Digest of the locally built image |
-| `image-tags` | Comma-separated list of applied tags |
+| `image-digest` | Digest of one platform build (not pushed, informational only) |
+| `image-tags` | Newline-separated list of tags the image would get |
 
 ---
 
 ### `reusable-container-build.yml`
 
 Builds **and pushes** multi-arch container images to `ghcr.io`, signs them with Cosign (keyless), and attests provenance (SLSA Level 2). Use this in release / on-demand workflows.
+
+`linux/amd64` and `linux/arm64` build in parallel on native runners and are pushed untagged by digest. A final job combines both into one multi-arch image, tags it, and signs and attests it. See [Native multi-arch builds](#native-multi-arch-builds).
 
 Requires the caller to declare elevated permissions:
 
@@ -183,7 +186,6 @@ with:
   image-name: "naira-api"            # optional, defaults to repo name
   dockerfile: "Dockerfile"           # default
   context: "."                       # default
-  platforms: "linux/amd64,linux/arm64"
   registry: "ghcr.io"                # default
   sign: true                         # default: Cosign keyless signing
   build-args: |
@@ -197,8 +199,8 @@ secrets:
 
 | Output | Description |
 |---|---|
-| `image-digest` | `sha256:...` digest of the pushed image |
-| `image-tags` | Comma-separated list of applied tags |
+| `image-digest` | `sha256:...` digest of the pushed multi-arch manifest |
+| `image-tags` | Newline-separated list of applied tags |
 | `image-ref` | Digest-pinned image reference, e.g. `ghcr.io/org/app@sha256:...` |
 | `attestation-url` | GitHub attestation summary URL for the image provenance |
 
@@ -213,6 +215,21 @@ When `push: true`, the workflow signs the image with keyless Cosign, generates
 SLSA build provenance, pushes the attestation to the image registry, stores it
 in GitHub's attestation store, and uploads the attestation bundle as a workflow
 artifact named `provenance-<image-name>`.
+
+#### Native multi-arch builds
+
+Both container workflows always build two images in parallel, without QEMU emulation:
+
+| Platform | Runner |
+|---|---|
+| `linux/amd64` | `ubuntu-24.04` |
+| `linux/arm64` | `ubuntu-24.04-arm` |
+
+The hosted `ubuntu-24.04-arm` runner works in public and private repositories. Public repositories use it for free; private repositories pay per minute, like other hosted runners.
+
+The `platforms` input is deprecated and ignored. It is still accepted so existing callers keep working; remove it from your workflow.
+
+The build cache is scoped per image and architecture (`<image-name>-amd64`), so calling the workflow for several images in one run does not mix caches.
 
 The caller must grant these permissions for published images:
 
@@ -235,7 +252,11 @@ uses: naira-project/naira-github-workflows/.github/workflows/reusable-container-
 with:
   image-ref: "ghcr.io/org/app@sha256:..."
   source-digest: ${{ github.sha }}
+secrets:
+  registry-password: ${{ secrets.GITHUB_TOKEN }}  # only needed for private images
 ```
+
+The job requests `packages: read`, so a caller with an explicit `permissions` block must grant it.
 
 Set `verify-signature: false` or `verify-provenance: false` only when debugging
 a partial release. Release gates should leave both enabled.
