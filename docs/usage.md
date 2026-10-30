@@ -205,7 +205,7 @@ secrets:
 | `attestation-url` | GitHub attestation summary URL for the image provenance |
 
 Images are automatically tagged with:
-- `latest` (on default branch)
+- `latest` when `image-tag` is a stable release (no `-` suffix, so not `v1.2.3-rc`)
 - Semver (`1.2.3`, `1.2`, `1`) on version tags
 - Branch name on branch pushes
 - `pr-42` on pull requests

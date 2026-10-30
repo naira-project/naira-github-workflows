@@ -141,8 +141,8 @@ jobs:
             type=ref,event=branch
             # PR builds → pr-42
             type=ref,event=pr
-            # Always tag latest on default branch
-            type=raw,value=latest,enable={{is_default_branch}}
+            # latest = newest stable release; pre-releases (v1.2.3-rc) never get it
+            type=raw,value=latest,enable=${{ inputs.image-tag != '' && !contains(inputs.image-tag, '-') }}
             # Immutable SHA tag for traceability
             type=sha,prefix=sha-,format=short
 

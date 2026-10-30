@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: 2026 Naira Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+# Temporary proof for the latest-tag rule; removed before merge.
+name: tmp latest proof
+on: pull_request
+permissions: {}
+jobs:
+  meta:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        image-tag: ["v0.1.2-rc", "v0.1.2", "v1.0.0-rc.1", ""]
+    steps:
+      - id: meta
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
+        with:
+          images: ghcr.io/example/proof
+          tags: |
+            type=raw,value=${{ matrix.image-tag }},enable=${{ matrix.image-tag != '' }}
+            type=raw,value=latest,enable=${{ matrix.image-tag != '' && !contains(matrix.image-tag, '-') }}
+            type=sha,prefix=sha-,format=short
+      - env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          IMAGE_TAG: ${{ matrix.image-tag }}
+        run: |
+          echo "image-tag='$IMAGE_TAG' -> $TAGS"
+          if grep -q ':latest$' <<<"$TAGS"; then has=yes; else has=no; fi
+          case "$IMAGE_TAG" in v0.1.2) want=yes;; *) want=no;; esac
+          echo "latest: got=$has want=$want"; [ "$has" = "$want" ]
