@@ -263,6 +263,61 @@ a partial release. Release gates should leave both enabled.
 
 ---
 
+### `reusable-wiki-build.yml`
+
+Builds a Naira wiki site from the wiki starter layout and publishes it as a signed, attested multi-arch image. Operators install the image by digest through the `wikis` list of the Naira Helm chart.
+
+The jobs run in order:
+
+1. `site` runs `npm ci` and `npm run build` in `working-directory`. A broken internal link fails here, before anything is pushed. It also fixes the build time, so both architectures of the image carry the same value.
+2. `image` calls `reusable-container-build.yml` with signing always on. The Dockerfile builds the site again, because that workflow cannot take a prebuilt one.
+3. `check-image` runs the pushed digest and checks `/naira-wiki.json` and `/_naira/bootstrap.html`. It prints the `wikis[]` entry for the Helm values, also in the job summary.
+
+The caller must grant these permissions. A caller that grants fewer fails at startup:
+
+```yaml
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+```
+
+```yaml
+uses: naira-project/naira-github-workflows/.github/workflows/reusable-wiki-build.yml@main
+with:
+  wiki-id: platform-handbook         # required, a DNS label
+  working-directory: "."             # default
+  image-name: "platform-handbook"    # optional, defaults to repo name
+  registry: "ghcr.io"                # default
+  node-version: "22"                 # default
+secrets:
+  registry-password: ${{ secrets.GITHUB_TOKEN }}
+```
+
+`wiki-id` must match `^[a-z0-9]([-a-z0-9]{0,40}[a-z0-9])?$`. The workflow rejects anything else before it builds. `node-version` only sets Node for the `site` job; keep it in sync with the Node stage of the Dockerfile.
+
+**What the build must provide:**
+
+| Where | Requirement |
+|---|---|
+| `npm run build` | Writes `dist/naira-wiki.json` and `dist/_naira/bootstrap.html` |
+| Dockerfile | Takes the build args `NAIRA_WIKI_ID`, `NAIRA_WIKI_BUILT_AT`, `GITHUB_SHA` and `GITHUB_REPOSITORY` |
+| Image | Serves `/naira-wiki.json` and `/_naira/bootstrap.html` on port 8080 |
+| `/naira-wiki.json` | `id`, `source.commit` and `builtAt` equal the build args; `contract`, `title`, `owner` and `source.repository` are non-empty strings |
+
+**Outputs:**
+
+| Output | Description |
+|---|---|
+| `image-ref` | Digest-pinned image reference, e.g. `ghcr.io/org/wiki@sha256:...` |
+| `attestation-url` | GitHub attestation summary URL for the image provenance |
+
+Verify the result with `reusable-container-verify.yml`, as in [`examples/wiki/wiki-build.yml`](../examples/wiki/wiki-build.yml).
+
+---
+
 ### `reusable-artifact-provenance.yml`
 
 Generates provenance for non-container release artifacts that were previously

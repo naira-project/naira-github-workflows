@@ -1,0 +1,46 @@
+# SPDX-FileCopyrightText: 2026 Naira Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# ┌──────────────────────────────────────────────────────────────────────────┐
+# │  COPY THIS FILE into your wiki repo at:                                  │
+# │  .github/workflows/wiki-build.yml                                        │
+# └──────────────────────────────────────────────────────────────────────────┘
+
+name: Wiki Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  wiki:
+    name: Build & Publish
+    # reusable-container-build.yml needs all five; a caller that grants fewer fails at startup
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    # Pin to a release tag or commit SHA
+    uses: naira-project/naira-github-workflows/.github/workflows/reusable-wiki-build.yml@main
+    with:
+      wiki-id: platform-handbook
+      # image-name: platform-handbook   # defaults to the repo name
+    secrets:
+      registry-password: ${{ secrets.GITHUB_TOKEN }}
+
+  verify:
+    name: Verify
+    needs: wiki
+    permissions:
+      contents: read
+      attestations: read
+      packages: read
+    uses: naira-project/naira-github-workflows/.github/workflows/reusable-container-verify.yml@main
+    with:
+      image-ref: ${{ needs.wiki.outputs.image-ref }}
+      source-digest: ${{ github.sha }}
+    secrets:
+      registry-password: ${{ secrets.GITHUB_TOKEN }}
