@@ -314,7 +314,7 @@ secrets:
 | `image-ref` | Digest-pinned image reference, e.g. `ghcr.io/org/handbook@sha256:...` |
 | `attestation-url` | GitHub attestation summary URL for the image provenance |
 
-Verify the result with `reusable-container-verify.yml`, as in [`examples/handbook/handbook-build.yml`](../examples/handbook/handbook-build.yml).
+Verify the result with `reusable-container-verify.yml`, as in [`examples/handbook/handbook-build.yml`](../examples/handbook/handbook-build.yml). [`naira-project/example-handbook`](https://github.com/naira-project/example-handbook) is a handbook repository that calls both.
 
 ---
 
