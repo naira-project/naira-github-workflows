@@ -1,25 +1,25 @@
 # SPDX-FileCopyrightText: 2026 Naira Project Contributors
 # SPDX-License-Identifier: Apache-2.0
 #
-# Builds and publishes a Naira wiki site image (the wiki starter layout):
+# Builds and publishes a Naira handbook site image (the handbook starter layout):
 #   1. site         : npm ci + build as a fast gate, and fixes the build time for the image
 #   2. image        : multi-arch build from the Dockerfile, signed and attested
-#   3. check-image  : runs the pushed digest and checks its naira-wiki.json
+#   3. check-image  : runs the pushed digest and checks its naira-handbook.json
 #
 # container-build cannot take a prebuilt site, so the Dockerfile builds it again;
-# the commit, wiki id and build time reach that build as build args.
+# the commit, handbook id and build time reach that build as build args.
 
-name: Reusable · Wiki Build & Publish
+name: Reusable · Handbook Build & Publish
 
 on:
   workflow_call:
     inputs:
-      wiki-id:
-        description: "Wiki id, a DNS label ([a-z0-9-], max 42 characters). Served at <id>.<wikiDomain>"
+      handbook-id:
+        description: "Handbook id, a DNS label ([a-z0-9-], max 42 characters). Served at <id>.<handbookDomain>"
         type: string
         required: true
       working-directory:
-        description: "Directory with the wiki's package.json, package-lock.json and Dockerfile"
+        description: "Directory with the handbook's package.json, package-lock.json and Dockerfile"
         type: string
         default: "."
       image-name:
@@ -63,15 +63,15 @@ jobs:
         working-directory: ${{ inputs.working-directory }}
     steps:
       # First, so a bad id never reaches the build-args below or the Helm values
-      - name: Validate wiki id
+      - name: Validate handbook id
         working-directory: .
         run: |
-          if ! [[ "$WIKI_ID" =~ ^[a-z0-9]([-a-z0-9]{0,40}[a-z0-9])?$ ]]; then
-            echo "::error::wiki-id must match ^[a-z0-9]([-a-z0-9]{0,40}[a-z0-9])?\$ (a DNS label), got: ${WIKI_ID}"
+          if ! [[ "$HANDBOOK_ID" =~ ^[a-z0-9]([-a-z0-9]{0,40}[a-z0-9])?$ ]]; then
+            echo "::error::handbook-id must match ^[a-z0-9]([-a-z0-9]{0,40}[a-z0-9])?\$ (a DNS label), got: ${HANDBOOK_ID}"
             exit 1
           fi
         env:
-          WIKI_ID: ${{ inputs.wiki-id }}
+          HANDBOOK_ID: ${{ inputs.handbook-id }}
 
       # Same value for the gate build and for both architectures of the image
       - name: Fix build time
@@ -98,12 +98,12 @@ jobs:
       - name: Build site
         run: npm run build
         env:
-          NAIRA_WIKI_ID: ${{ inputs.wiki-id }}
-          NAIRA_WIKI_BUILT_AT: ${{ steps.built-at.outputs.value }}
+          NAIRA_HANDBOOK_ID: ${{ inputs.handbook-id }}
+          NAIRA_HANDBOOK_BUILT_AT: ${{ steps.built-at.outputs.value }}
 
       - name: Check build output
         run: |
-          for f in dist/naira-wiki.json dist/_naira/bootstrap.html; do
+          for f in dist/naira-handbook.json dist/_naira/bootstrap.html; do
             if [ ! -s "$f" ]; then
               echo "::error::npm run build did not produce ${INPUTS_WORKING_DIRECTORY}/${f}"
               exit 1
@@ -129,8 +129,8 @@ jobs:
       registry: ${{ inputs.registry }}
       sign: true
       build-args: |
-        NAIRA_WIKI_ID=${{ inputs.wiki-id }}
-        NAIRA_WIKI_BUILT_AT=${{ needs.site.outputs.built-at }}
+        NAIRA_HANDBOOK_ID=${{ inputs.handbook-id }}
+        NAIRA_HANDBOOK_BUILT_AT=${{ needs.site.outputs.built-at }}
         GITHUB_SHA=${{ github.sha }}
         GITHUB_REPOSITORY=${{ github.repository }}
     secrets:
@@ -154,39 +154,39 @@ jobs:
           password: ${{ secrets.registry-password }}
 
       - name: Run the image
-        run: docker run -d --name wiki -p 127.0.0.1:8080:8080 "$IMAGE_REF"
+        run: docker run -d --name handbook -p 127.0.0.1:8080:8080 "$IMAGE_REF"
         env:
           IMAGE_REF: ${{ needs.image.outputs.image-ref }}
 
-      - name: Fetch naira-wiki.json
+      - name: Fetch naira-handbook.json
         run: |
           for _ in $(seq 1 30); do
-            if curl -fsS --max-time 2 -o naira-wiki.json http://127.0.0.1:8080/naira-wiki.json; then
+            if curl -fsS --max-time 2 -o naira-handbook.json http://127.0.0.1:8080/naira-handbook.json; then
               exit 0
             fi
             sleep 1
           done
-          echo "::error::The image did not serve /naira-wiki.json on port 8080"
-          docker logs wiki
+          echo "::error::The image did not serve /naira-handbook.json on port 8080"
+          docker logs handbook
           exit 1
 
       - name: Check metadata
         run: |
-          if ! jq -e --arg id "$WIKI_ID" --arg sha "$GITHUB_SHA" --arg built_at "$BUILT_AT" '
+          if ! jq -e --arg id "$HANDBOOK_ID" --arg sha "$GITHUB_SHA" --arg built_at "$BUILT_AT" '
             .id == $id and .source.commit == $sha and .builtAt == $built_at
             and ([.contract, .title, .owner, .source.repository] | all(type == "string" and length > 0))
-          ' naira-wiki.json > /dev/null; then
-            echo "::error::naira-wiki.json lacks the expected id, commit, build time, contract, title, owner or repository:"
-            cat naira-wiki.json
+          ' naira-handbook.json > /dev/null; then
+            echo "::error::naira-handbook.json lacks the expected id, commit, build time, contract, title, owner or repository:"
+            cat naira-handbook.json
             exit 1
           fi
           curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:8080/_naira/bootstrap.html
         env:
-          WIKI_ID: ${{ inputs.wiki-id }}
+          HANDBOOK_ID: ${{ inputs.handbook-id }}
           BUILT_AT: ${{ needs.site.outputs.built-at }}
 
       # JSON strings are valid YAML, so titles with ":" or "#" stay safe to paste
-      - name: Print wikis[] entry
+      - name: Print handbooks[] entry
         run: |
           jq -r --arg image "$IMAGE_REF" '
             "- id: \(.id | @json)",
@@ -196,13 +196,13 @@ jobs:
             "  image: \($image | @json)",
             "  owner: \(.owner | @json)",
             "  source: \(.source.repository | @json)"
-          ' naira-wiki.json > wikis-entry.yaml
-          cat wikis-entry.yaml
+          ' naira-handbook.json > handbooks-entry.yaml
+          cat handbooks-entry.yaml
           {
-            echo "### Wiki image published"
-            echo "Add this entry to \`wikis\` in the Naira Helm values (set \`primary\` and \`order\` as needed):"
+            echo "### Handbook image published"
+            echo "Add this entry to \`handbooks\` in the Naira Helm values (set \`primary\` and \`order\` as needed):"
             echo '```yaml'
-            cat wikis-entry.yaml
+            cat handbooks-entry.yaml
             echo '```'
             echo "**Provenance:** ${ATTESTATION_URL}"
           } >> "$GITHUB_STEP_SUMMARY"

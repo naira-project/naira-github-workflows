@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # ┌──────────────────────────────────────────────────────────────────────────┐
-# │  COPY THIS FILE into your wiki repo at:                                  │
-# │  .github/workflows/wiki-build.yml                                        │
+# │  COPY THIS FILE into your handbook repo at:                                  │
+# │  .github/workflows/handbook-build.yml                                        │
 # └──────────────────────────────────────────────────────────────────────────┘
 
-name: Wiki Build
+name: Handbook Build
 
 on:
   push:
@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  wiki:
+  handbook:
     name: Build & Publish
     # reusable-container-build.yml needs all five; a caller that grants fewer fails at startup
     permissions:
@@ -24,23 +24,23 @@ jobs:
       attestations: write
       artifact-metadata: write
     # Pin to a release tag or commit SHA
-    uses: naira-project/naira-github-workflows/.github/workflows/reusable-wiki-build.yml@main
+    uses: naira-project/naira-github-workflows/.github/workflows/reusable-handbook-build.yml@main
     with:
-      wiki-id: platform-handbook
+      handbook-id: platform-handbook
       # image-name: platform-handbook   # defaults to the repo name
     secrets:
       registry-password: ${{ secrets.GITHUB_TOKEN }}
 
   verify:
     name: Verify
-    needs: wiki
+    needs: handbook
     permissions:
       contents: read
       attestations: read
       packages: read
     uses: naira-project/naira-github-workflows/.github/workflows/reusable-container-verify.yml@main
     with:
-      image-ref: ${{ needs.wiki.outputs.image-ref }}
+      image-ref: ${{ needs.handbook.outputs.image-ref }}
       source-digest: ${{ github.sha }}
     secrets:
       registry-password: ${{ secrets.GITHUB_TOKEN }}

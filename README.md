@@ -34,7 +34,7 @@ naira-github-workflows/
 │   │   ├── reusable-helm-publish.yml
 │   │   ├── reusable-security-scan.yml
 │   │   ├── reusable-workflow-security.yml
-│   │   ├── reusable-wiki-build.yml
+│   │   ├── reusable-handbook-build.yml
 │   │   └── reusable-release.yml
 │   └── actions/                    # Composite actions (shared steps)
 │       ├── setup-go/
@@ -44,7 +44,7 @@ naira-github-workflows/
 │   ├── go-service/
 │   ├── node-service/
 │   ├── helm-chart/
-│   └── wiki/
+│   └── handbook/
 └── docs/
     ├── usage.md
     └── troubleshooting.md
