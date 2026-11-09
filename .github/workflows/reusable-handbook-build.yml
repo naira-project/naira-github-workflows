@@ -1,0 +1,211 @@
+# SPDX-FileCopyrightText: 2026 Naira Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# Builds and publishes a Naira handbook site image (the handbook starter layout):
+#   1. site         : npm ci + build as a fast gate, and fixes the build time for the image
+#   2. image        : multi-arch build from the Dockerfile, signed and attested
+#   3. check-image  : runs the pushed digest and checks its naira-handbook.json
+#
+# container-build cannot take a prebuilt site, so the Dockerfile builds it again;
+# the commit, handbook id and build time reach that build as build args.
+
+name: Reusable · Handbook Build & Publish
+
+on:
+  workflow_call:
+    inputs:
+      handbook-id:
+        description: "Handbook id, a DNS label ([a-z0-9-], max 42 characters). Served at <id>.<handbookDomain>"
+        type: string
+        required: true
+      working-directory:
+        description: "Directory with the handbook's package.json, package-lock.json and Dockerfile"
+        type: string
+        default: "."
+      image-name:
+        description: "Container image name. Defaults to the repo name."
+        type: string
+        default: ""
+      registry:
+        description: "Container registry hostname"
+        type: string
+        default: "ghcr.io"
+      node-version:
+        description: "Node.js version for the site gate; keep in sync with the Dockerfile's Node stage"
+        type: string
+        default: "22"
+    secrets:
+      registry-username:
+        description: "Registry username (defaults to github.actor if not set)"
+        required: false
+      registry-password:
+        description: "Registry password / token"
+        required: true
+    outputs:
+      image-ref:
+        description: "Published image reference pinned by digest"
+        value: ${{ jobs.image.outputs.image-ref }}
+      attestation-url:
+        description: "GitHub attestation summary URL for the pushed image"
+        value: ${{ jobs.image.outputs.attestation-url }}
+
+jobs:
+  site:
+    name: Build site
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      built-at: ${{ steps.built-at.outputs.value }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      # First, so a bad id never reaches the build-args below or the Helm values
+      - name: Validate handbook id
+        working-directory: .
+        run: |
+          if ! [[ "$HANDBOOK_ID" =~ ^[a-z0-9]([-a-z0-9]{0,40}[a-z0-9])?$ ]]; then
+            echo "::error::handbook-id must match ^[a-z0-9]([-a-z0-9]{0,40}[a-z0-9])?\$ (a DNS label), got: ${HANDBOOK_ID}"
+            exit 1
+          fi
+        env:
+          HANDBOOK_ID: ${{ inputs.handbook-id }}
+
+      # Same value for the gate build and for both architectures of the image
+      - name: Fix build time
+        id: built-at
+        working-directory: .
+        run: echo "value=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # A dead internal link fails here, before any image is pushed
+      - name: Build site
+        run: npm run build
+        env:
+          NAIRA_HANDBOOK_ID: ${{ inputs.handbook-id }}
+          NAIRA_HANDBOOK_BUILT_AT: ${{ steps.built-at.outputs.value }}
+
+      - name: Check build output
+        run: |
+          for f in dist/naira-handbook.json dist/_naira/bootstrap.html; do
+            if [ ! -s "$f" ]; then
+              echo "::error::npm run build did not produce ${INPUTS_WORKING_DIRECTORY}/${f}"
+              exit 1
+            fi
+          done
+        env:
+          INPUTS_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+
+  image:
+    name: Publish image
+    needs: site
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    uses: ./.github/workflows/reusable-container-build.yml
+    with:
+      image-name: ${{ inputs.image-name }}
+      dockerfile: ${{ inputs.working-directory }}/Dockerfile
+      context: ${{ inputs.working-directory }}
+      registry: ${{ inputs.registry }}
+      sign: true
+      build-args: |
+        NAIRA_HANDBOOK_ID=${{ inputs.handbook-id }}
+        NAIRA_HANDBOOK_BUILT_AT=${{ needs.site.outputs.built-at }}
+        GITHUB_SHA=${{ github.sha }}
+        GITHUB_REPOSITORY=${{ github.repository }}
+    secrets:
+      registry-username: ${{ secrets.registry-username }}
+      registry-password: ${{ secrets.registry-password }}
+
+  # What the operator installs is the pushed image, so check that, not the gate build
+  check-image:
+    name: Check image
+    needs: [site, image]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # The pull uses registry-password, which carries the caller's grants
+    permissions: {}
+    steps:
+      - name: Log in to ${{ inputs.registry }}
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ secrets.registry-username || github.actor }}
+          password: ${{ secrets.registry-password }}
+
+      - name: Run the image
+        run: docker run -d --name handbook -p 127.0.0.1:8080:8080 "$IMAGE_REF"
+        env:
+          IMAGE_REF: ${{ needs.image.outputs.image-ref }}
+
+      - name: Fetch naira-handbook.json
+        run: |
+          for _ in $(seq 1 30); do
+            if curl -fsS --max-time 2 -o naira-handbook.json http://127.0.0.1:8080/naira-handbook.json; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::The image did not serve /naira-handbook.json on port 8080"
+          docker logs handbook
+          exit 1
+
+      - name: Check metadata
+        run: |
+          if ! jq -e --arg id "$HANDBOOK_ID" --arg sha "$GITHUB_SHA" --arg built_at "$BUILT_AT" '
+            .id == $id and .source.commit == $sha and .builtAt == $built_at
+            and ([.contract, .title, .owner, .source.repository] | all(type == "string" and length > 0))
+          ' naira-handbook.json > /dev/null; then
+            echo "::error::naira-handbook.json lacks the expected id, commit, build time, contract, title, owner or repository:"
+            cat naira-handbook.json
+            exit 1
+          fi
+          curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:8080/_naira/bootstrap.html
+        env:
+          HANDBOOK_ID: ${{ inputs.handbook-id }}
+          BUILT_AT: ${{ needs.site.outputs.built-at }}
+
+      # JSON strings are valid YAML, so titles with ":" or "#" stay safe to paste
+      - name: Print handbooks[] entry
+        run: |
+          jq -r --arg image "$IMAGE_REF" '
+            "- id: \(.id | @json)",
+            "  enabled: true",
+            "  contract: \(.contract | @json)",
+            "  label: \(.title | @json)",
+            "  image: \($image | @json)",
+            "  owner: \(.owner | @json)",
+            "  source: \(.source.repository | @json)"
+          ' naira-handbook.json > handbooks-entry.yaml
+          cat handbooks-entry.yaml
+          {
+            echo "### Handbook image published"
+            echo "Add this entry to \`handbooks\` in the Naira Helm values (set \`primary\` and \`order\` as needed):"
+            echo '```yaml'
+            cat handbooks-entry.yaml
+            echo '```'
+            echo "**Provenance:** ${ATTESTATION_URL}"
+          } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          IMAGE_REF: ${{ needs.image.outputs.image-ref }}
+          ATTESTATION_URL: ${{ needs.image.outputs.attestation-url }}

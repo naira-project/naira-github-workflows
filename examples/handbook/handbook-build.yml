@@ -1,0 +1,46 @@
+# SPDX-FileCopyrightText: 2026 Naira Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# ┌──────────────────────────────────────────────────────────────────────────┐
+# │  COPY THIS FILE into your handbook repo at:                                  │
+# │  .github/workflows/handbook-build.yml                                        │
+# └──────────────────────────────────────────────────────────────────────────┘
+
+name: Handbook Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  handbook:
+    name: Build & Publish
+    # reusable-container-build.yml needs all five; a caller that grants fewer fails at startup
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    # Pin to a release tag or commit SHA
+    uses: naira-project/naira-github-workflows/.github/workflows/reusable-handbook-build.yml@main
+    with:
+      handbook-id: platform-handbook
+      # image-name: platform-handbook   # defaults to the repo name
+    secrets:
+      registry-password: ${{ secrets.GITHUB_TOKEN }}
+
+  verify:
+    name: Verify
+    needs: handbook
+    permissions:
+      contents: read
+      attestations: read
+      packages: read
+    uses: naira-project/naira-github-workflows/.github/workflows/reusable-container-verify.yml@main
+    with:
+      image-ref: ${{ needs.handbook.outputs.image-ref }}
+      source-digest: ${{ github.sha }}
+    secrets:
+      registry-password: ${{ secrets.GITHUB_TOKEN }}
